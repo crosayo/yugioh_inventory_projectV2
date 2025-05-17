@@ -24,6 +24,7 @@ def allowed_file(filename):
 @bp.route('/unify_rarities', methods=('GET', 'POST'))
 @login_required
 def admin_unify_rarities():
+    # (この関数は変更ありません。前回の admin_py_category_fix_v4 と同じです)
     if request.method == 'POST':
         conn = None
         updated_count_total = 0
@@ -78,7 +79,7 @@ def admin_unify_rarities():
                            current_db_rarities=current_db_rarities)
 
 def get_items_by_category_for_batch(category_keyword=None, page=1, per_page=20, sort_by="name", sort_order="asc"):
-    # (This function remains the same as the previous version)
+    # (この関数は変更ありません。前回の admin_py_category_fix_v4 と同じです)
     if not category_keyword: return [], 0
     conn = None; items = []; total_items = 0
     try:
@@ -108,7 +109,7 @@ def get_items_by_category_for_batch(category_keyword=None, page=1, per_page=20, 
 @bp.route('/batch_register', methods=('GET', 'POST'))
 @login_required
 def admin_batch_register():
-    # (This function remains the same as the previous version)
+    # (この関数は変更ありません。前回の admin_py_category_fix_v4 と同じです)
     if request.method == 'POST':
         conn = None; updated_count = 0; error_messages_for_flash = []
         category_keyword_hidden = request.form.get('category_keyword_hidden', '').strip()
@@ -209,24 +210,27 @@ def admin_import_csv():
             for file_obj in files:
                 if file_obj and allowed_file(file_obj.filename):
                     original_filename_for_display = file_obj.filename 
-                    # カテゴリ名は元のファイル名から拡張子を除いて生成
+                    # カテゴリ名は元のファイル名から拡張子を除いて生成 (これがユーザーの意図)
                     category_name_from_filename = os.path.splitext(original_filename_for_display)[0]
-                    # ログや内部識別子用には secure_filename を通す
+                    # ログや内部識別子用には secure_filename を通したものを保持 (ファイルシステム保存時など)
                     filename_secure_internal = secure_filename(original_filename_for_display)
 
                     total_files_processed_count += 1
                     file_processing_summary = {'added': 0, 'updated_info': 0, 'skipped_no_change': 0, 'skipped_error_row': 0, 'rows_processed_in_file':0}
                     current_csv_row_num_for_log = 0 
                     
-                    current_app.logger.info(f"Processing CSV file: '{original_filename_for_display}'")
-                    current_app.logger.info(f"==> Derived category name: '{category_name_from_filename}'")
-                    current_app.logger.info(f"==> Secured internal filename (for savepoint etc.): '{filename_secure_internal}'")
+                    current_app.logger.info(f"--- Processing CSV file: '{original_filename_for_display}' ---")
+                    current_app.logger.info(f"Derived category name for all items in this file: '{category_name_from_filename}'")
+                    current_app.logger.debug(f"(Secured internal filename for savepoint etc.: '{filename_secure_internal}')")
 
                     try:
                         with conn_outer.cursor() as cur:
-                            savepoint_name = f"sp_{filename_secure_internal.replace('.', '_').replace('-', '_').replace(' ', '_')}"
+                            # Ensure savepoint name is a valid SQL identifier (alphanumeric and underscores)
+                            savepoint_name_base = "".join(c if c.isalnum() else '_' for c in filename_secure_internal)
+                            savepoint_name = f"sp_{savepoint_name_base[:50]}" # Limit length for safety
+                            
                             cur.execute(f"SAVEPOINT {savepoint_name}")
-                            current_app.logger.debug(f"Created savepoint {savepoint_name} for file {original_filename_for_display}")
+                            current_app.logger.debug(f"Created savepoint {savepoint_name} for file '{original_filename_for_display}'")
 
                             try:
                                 file_stream = io.TextIOWrapper(file_obj.stream, encoding='utf-8-sig', newline=None)
@@ -241,7 +245,7 @@ def admin_import_csv():
                                     if original_filename_for_display not in error_file_messages: error_file_messages[original_filename_for_display] = []
                                     error_file_messages[original_filename_for_display].append(err_msg)
                                     cur.execute(f"ROLLBACK TO SAVEPOINT {savepoint_name}")
-                                    current_app.logger.warning(f"Rolled back to savepoint {savepoint_name} for file {original_filename_for_display} due to header error.")
+                                    current_app.logger.warning(f"Rolled back to savepoint {savepoint_name} for file '{original_filename_for_display}' due to header error.")
                                     continue 
                                 
                                 def get_normalized_row_val(row, key_lower, default=''):
@@ -277,51 +281,55 @@ def admin_import_csv():
                                     existing_card_data = None
 
                                     if final_card_id_for_db is not None:
-                                        current_app.logger.debug(f"CSV Import: Checking existing card. card_id_csv='{card_id_csv}', final_card_id_for_db='{final_card_id_for_db}', type={type(final_card_id_for_db)}")
+                                        current_app.logger.debug(f"CSV Import (Row {current_csv_row_num_for_log}): Checking existing card. card_id_csv='{card_id_csv}', final_card_id_for_db='{final_card_id_for_db}'")
                                         try:
                                             cur.execute("SELECT id, name, rare, stock, category FROM items WHERE card_id = %s", (str(final_card_id_for_db),))
                                             existing_card_data = cur.fetchone()
                                         except Exception as e_select:
-                                            current_app.logger.error(f"CSV Import: DB Error selecting item by card_id='{final_card_id_for_db}'. Error: {e_select}")
+                                            current_app.logger.error(f"CSV Import (Row {current_csv_row_num_for_log}): DB Error selecting item by card_id='{final_card_id_for_db}'. Error: {e_select}")
                                             file_processing_summary['skipped_error_row'] +=1
                                             if original_filename_for_display not in error_file_messages: error_file_messages[original_filename_for_display] = []
                                             error_file_messages[original_filename_for_display].append(f"行 {current_csv_row_num_for_log}: card_id '{final_card_id_for_db}' でのDB検索エラー: {e_select}")
                                             continue 
                                     else:
-                                        current_app.logger.debug(f"CSV Import: card_id is empty for row {current_csv_row_num_for_log} in '{original_filename_for_display}'. Treating as new item if name/rare are present.")
+                                        current_app.logger.debug(f"CSV Import (Row {current_csv_row_num_for_log}): card_id is empty in '{original_filename_for_display}'. Treating as new item if name/rare are present.")
                                     
+                                    # --- Logic for INSERT or UPDATE ---
                                     if existing_card_data:
-                                        needs_update = False
-                                        update_payload = {
-                                            'name': existing_card_data['name'],
-                                            'rare': existing_card_data['rare'],
-                                            'category': existing_card_data['category']
-                                        }
+                                        # Card exists, check if update is needed
+                                        db_name = existing_card_data['name']
+                                        db_rare = existing_card_data['rare']
+                                        db_category = existing_card_data['category']
 
-                                        if existing_card_data['name'] != card_name:
-                                            update_payload['name'] = card_name
-                                            needs_update = True
-                                        if existing_card_data['rare'] != converted_rarity:
-                                            update_payload['rare'] = converted_rarity
-                                            needs_update = True
-                                        if existing_card_data['category'] != category_name_from_filename: # This is the key change
-                                            update_payload['category'] = category_name_from_filename
-                                            needs_update = True
-                                            current_app.logger.info(f"CSV Import: Category for card ID {final_card_id_for_db} WILL BE updated from '{existing_card_data['category']}' to '{category_name_from_filename}'.")
+                                        # Values from CSV/File
+                                        csv_name_val = card_name
+                                        csv_rare_val = converted_rarity
+                                        # Category is ALWAYS from the current filename for this import logic
+                                        category_from_current_file = category_name_from_filename 
 
+                                        name_changed = (db_name != csv_name_val)
+                                        rare_changed = (db_rare != csv_rare_val)
+                                        category_changed = (db_category != category_from_current_file)
+                                        
+                                        needs_db_update = name_changed or rare_changed or category_changed
 
-                                        if needs_update:
-                                            current_app.logger.debug(f"CSV Import: Updating existing card ID {final_card_id_for_db}. Current DB: {existing_card_data}. New data from CSV (Name: {card_name}, Rare: {converted_rarity}, Category from Filename: {category_name_from_filename})")
+                                        current_app.logger.info(f"Row {current_csv_row_num_for_log} (CardID: {final_card_id_for_db}): Comparing for update.")
+                                        current_app.logger.info(f"  Name: DB='{db_name}', CSV='{csv_name_val}' (Changed: {name_changed})")
+                                        current_app.logger.info(f"  Rare: DB='{db_rare}', CSV='{csv_rare_val}' (Changed: {rare_changed})")
+                                        current_app.logger.info(f"  Category: DB='{db_category}', File='{category_from_current_file}' (Changed: {category_changed})")
+
+                                        if needs_db_update:
+                                            current_app.logger.info(f"  => Updating DB for Card ID {final_card_id_for_db}.")
                                             cur.execute("""
                                                 UPDATE items SET name = %s, rare = %s, category = %s 
                                                 WHERE id = %s
-                                            """, (update_payload['name'], update_payload['rare'], update_payload['category'], existing_card_data['id']))
+                                            """, (csv_name_val, csv_rare_val, category_from_current_file, existing_card_data['id']))
                                             file_processing_summary['updated_info'] += 1
                                         else:
                                             file_processing_summary['skipped_no_change'] +=1
-                                            current_app.logger.debug(f"CSV Import: No changes needed for existing card ID {final_card_id_for_db}. DB Category: '{existing_card_data['category']}', Filename Category: '{category_name_from_filename}'")
+                                            current_app.logger.info(f"  => No changes needed for Card ID {final_card_id_for_db}.")
                                     else: # New item
-                                        current_app.logger.debug(f"CSV Import: Inserting new card. Name: {card_name}, CardID: '{final_card_id_for_db or 'N/A'}', Stock: {stock_csv}, Category: {category_name_from_filename}")
+                                        current_app.logger.info(f"CSV Import (Row {current_csv_row_num_for_log}): Inserting new card. Name='{card_name}', CardID='{final_card_id_for_db or 'N/A'}', Stock='{stock_csv}', Category='{category_name_from_filename}'")
                                         cur.execute("""
                                             INSERT INTO items (name, card_id, rare, stock, category)
                                             VALUES (%s, %s, %s, %s, %s)
@@ -331,14 +339,14 @@ def admin_import_csv():
                                 cur.execute(f"RELEASE SAVEPOINT {savepoint_name}")
                                 current_app.logger.info(f"Successfully processed and released savepoint for file '{original_filename_for_display}'. Summary: {file_processing_summary}")
 
-                            except psycopg2.Error as e_db_in_sp:
+                            except psycopg2.Error as e_db_in_sp: # Catch DB errors within savepoint block
                                 cur.execute(f"ROLLBACK TO SAVEPOINT {savepoint_name}")
                                 current_app.logger.error(f"DB Error during row processing in file '{original_filename_for_display}', rolled back to savepoint {savepoint_name}. Error: {e_db_in_sp}\n{traceback.format_exc()}")
                                 if original_filename_for_display not in error_file_messages: error_file_messages[original_filename_for_display] = []
                                 error_file_messages[original_filename_for_display].append(f"ファイル処理中のDBエラー(行 {current_csv_row_num_for_log} 付近): {e_db_in_sp}。このファイルの変更は取消。")
                                 file_processing_summary['skipped_error_row'] = file_processing_summary['rows_processed_in_file'] 
                                 file_processing_summary['added'] = 0; file_processing_summary['updated_info'] = 0; file_processing_summary['skipped_no_change'] = 0;
-                            except Exception as e_file_processing:
+                            except Exception as e_file_processing: # Catch other errors during row processing
                                 cur.execute(f"ROLLBACK TO SAVEPOINT {savepoint_name}")
                                 current_app.logger.error(f"Error processing rows in file '{original_filename_for_display}', rolled back to savepoint {savepoint_name}. Error: {e_file_processing}\n{traceback.format_exc()}")
                                 if original_filename_for_display not in error_file_messages: error_file_messages[original_filename_for_display] = []
@@ -347,18 +355,21 @@ def admin_import_csv():
                                 file_processing_summary['added'] = 0; file_processing_summary['updated_info'] = 0; file_processing_summary['skipped_no_change'] = 0;
                     
                     except UnicodeDecodeError as e_decode_outer:
+                        # This error happens before savepoint creation, so no rollback to savepoint here.
                         err_msg = f"文字コードエラー: {e_decode_outer}。UTF-8 (BOM付き推奨) を確認してください。"
                         current_app.logger.error(f"Critical error decoding file '{original_filename_for_display}': {err_msg}\n{traceback.format_exc()}")
                         if original_filename_for_display not in error_file_messages: error_file_messages[original_filename_for_display] = []
                         error_file_messages[original_filename_for_display].append(err_msg)
                         file_processing_summary['skipped_error_row'] = file_processing_summary.get('rows_processed_in_file', 1) 
                     except (csv.Error, Exception) as e_critical_file:
+                        # This error happens before savepoint creation or outside of it
                         err_msg = f"ファイル '{original_filename_for_display}' の処理中に致命的なエラー: {e_critical_file}"
                         current_app.logger.error(f"{err_msg}\n{traceback.format_exc()}")
                         if original_filename_for_display not in error_file_messages: error_file_messages[original_filename_for_display] = []
                         error_file_messages[original_filename_for_display].append(err_msg)
                         file_processing_summary['skipped_error_row'] = file_processing_summary.get('rows_processed_in_file', 1)
                     finally:
+                        # Aggregate file summary to overall summary
                         overall_summary_stats['added'] += file_processing_summary['added']
                         overall_summary_stats['updated_info'] += file_processing_summary['updated_info']
                         overall_summary_stats['skipped_no_change'] += file_processing_summary['skipped_no_change']
@@ -371,6 +382,7 @@ def admin_import_csv():
                     if file_obj.filename not in error_file_messages: error_file_messages[file_obj.filename] = []
                     error_file_messages[file_obj.filename].append(err_msg)
             
+            # After processing all files, form the summary message
             summary_parts = [f"CSVインポート処理完了。処理試行ファイル数: {total_files_processed_count}。"]
             summary_parts.append(f"総処理行数: {overall_summary_stats['rows_processed_total']}。")
             summary_parts.append(f"新規追加: {overall_summary_stats['added']}件。")
@@ -390,6 +402,7 @@ def admin_import_csv():
             current_app.logger.info(f"CSV Import Overall Summary: {final_flash_message}")
 
         except psycopg2.Error as e_db_main_conn:
+            # Error with the main connection itself, or outside file-specific transactions
             error_message = f"CSVインポート処理中にデータベース接続または主要なトランザクションエラーが発生しました: {e_db_main_conn}"
             current_app.logger.error(f"Main DB Error during CSV import: {error_message}\n{traceback.format_exc()}")
             flash(error_message, 'danger')
