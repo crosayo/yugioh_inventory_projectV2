@@ -1,0 +1,36 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container login-container">
+  <h2 class="text-center mb-4">ログイン</h2>
+
+  {# Flash messages are handled in layout.html #}
+  {# {% if error %}
+    <div class="alert alert-danger text-center" role="alert">
+      {{ error }}
+    </div>
+  {% endif %} #}
+
+  <form method="post" action="{{ url_for('auth.login') }}{% if request.args.get('next') %}?next={{ request.args.get('next') | urlencode }}{% endif %}">
+    <div class="mb-3">
+      <label for="username" class="form-label">ユーザー名</label>
+      <input type="text" class="form-control" id="username" name="username" required autofocus>
+    </div>
+
+    <div class="mb-3">
+      <label for="password" class="form-label">パスワード</label>
+      <input type="password" class="form-control" id="password" name="password" required>
+    </div>
+
+    <div class="d-grid gap-2">
+      <button type="submit" class="btn btn-primary btn-lg">ログイン</button>
+    </div>
+  </form>
+
+  {# Optional: Link to registration page if you add one later
+  <div class="text-center mt-3">
+    <p>アカウントをお持ちでないですか？ <a href="{{ url_for('auth.register') }}">新規登録</a></p>
+  </div>
+  #}
+</div>
+{% endblock %}

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>遊戯王カード在庫管理</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+    {% block head_extra %}{% endblock %}
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('main.index') }}">遊戯王在庫管理</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNavDropdown" aria-controls="navbarNavDropdown" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNavDropdown">
+                <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'main.index' %}active{% endif %}" aria-current="page" href="{{ url_for('main.index') }}">ホーム</a>
+                    </li>
+                    {% if g.user %}
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'main.add_item' %}active{% endif %}" href="{{ url_for('main.add_item') }}">新規登録</a>
+                    </li>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle {% if request.endpoint.startswith('admin.') %}active{% endif %}" href="#" id="adminMenuDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            管理メニュー
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-dark" aria-labelledby="adminMenuDropdown">
+                            <li><a class="dropdown-item {% if request.endpoint == 'admin.unify_rarities' %}active{% endif %}" href="{{ url_for('admin.admin_unify_rarities') }}">DBレアリティ統一</a></li>
+                            <li><a class="dropdown-item {% if request.endpoint == 'admin.import_csv' %}active{% endif %}" href="{{ url_for('admin.admin_import_csv') }}">CSVインポート</a></li>
+                            <li><a class="dropdown-item {% if request.endpoint == 'admin.batch_register' %}active{% endif %}" href="{{ url_for('admin.admin_batch_register') }}">一括カード登録</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="{{ url_for('main.download_csv') }}">CSVバックアップ</a></li>
+                        </ul>
+                    </li>
+                    {% endif %}
+                </ul>
+                <ul class="navbar-nav">
+                    {% if g.user %}
+                        <li class="nav-item">
+                            <span class="navbar-text me-3">
+                               ようこそ、 {{ g.user.username }} さん
+                            </span>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('auth.logout') }}" class="btn btn-outline-danger btn-sm">ログアウト</a>
+                        </li>
+                    {% else %}
+                        <li class="nav-item">
+                            <a href="{{ url_for('auth.login') }}" class="btn btn-outline-success btn-sm">ログイン</a>
+                        </li>
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container mt-4 mb-5 pb-5"> {# Added pb-5 for more space before footer #}
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer mt-auto py-3 bg-light fixed-bottom">
+        <div class="container text-center">
+            <span class="text-muted">&copy; {{ now.year }} 遊戯王カード在庫管理. All rights reserved.</span>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

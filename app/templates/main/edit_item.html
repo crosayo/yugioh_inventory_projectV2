@@ -1,0 +1,114 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container item-form-container">
+  <h2 class="text-center mb-4">商品編集 (ID: {{ item.id }})</h2>
+
+  {# Flash messages are handled in layout.html #}
+
+  <form method="post" action="{{ url_for('main.edit_item', item_id=item.id) }}">
+    <div class="mb-3">
+      <label for="name" class="form-label">名前 <span class="text-danger">*</span></label>
+      <input type="text" id="name" name="name" class="form-control" value="{{ item.name }}" required>
+    </div>
+
+    <div class="mb-3">
+      <label for="card_id_display" class="form-label">カードID (型番)</label>
+      <input type="text" id="card_id_display" class="form-control" value="{{ item.card_id or '(未設定)' }}" disabled readonly title="カードIDは変更できません">
+      {# Card ID is generally not editable once set, or requires special handling #}
+    </div>
+
+    <div class="mb-3">
+      <label for="rare_select" class="form-label">レアリティ <span class="text-danger">*</span></label>
+      <select name="rare_select" id="rare_select_edit" class="form-select" required>
+        <option value="" disabled>選択してください</option>
+        {% set current_rare_is_defined = item.rare in rarities %}
+        {% for r_option in rarities %}
+          <option value="{{ r_option }}" 
+                  {% if r_option == item.rare %}selected
+                  {% elif not current_rare_is_defined and item.rare and r_option == 'その他' %}selected
+                  {% endif %}>
+            {{ r_option }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="mb-3" id="rare_custom_div_edit" 
+         style="display: {% if (item.rare not in rarities and item.rare) or item.rare == 'その他' %}block{% else %}none{% endif %};">
+      <label for="rare_custom" class="form-label">レアリティ（その他）</label>
+      <input type="text" id="rare_custom_edit" name="rare_custom" class="form-control" placeholder="例: エラーカード" 
+             value="{% if item.rare not in rarities and item.rare %}{{ item.rare }}{% elif item.rare == 'その他' and request.form.rare_custom %}{{ request.form.rare_custom }}{% elif item.rare == 'その他' and not request.form.rare_custom %}{{ item.rare }}{% endif %}">
+    </div>
+
+    <div class="mb-3">
+      <label for="category" class="form-label">カテゴリー（収録パックなど）</label>
+      <input type="text" id="category" name="category" class="form-control" value="{{ item.category or '' }}" placeholder="例: HISTORY ARCHIVE COLLECTION">
+    </div>
+
+    <div class="mb-3">
+      <label for="stock" class="form-label">在庫数</label>
+      <input type="number" id="stock" name="stock" class="form-control" value="{{ item.stock }}" min="0" required>
+    </div>
+
+    <div class="d-grid gap-2 mt-4">
+      <button type="submit" class="btn btn-primary btn-lg">更新する</button>
+      <a href="{{ url_for('main.index') }}" class="btn btn-outline-secondary">キャンセル</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const rareSelectEdit = document.getElementById('rare_select_edit');
+  const rareCustomDivEdit = document.getElementById('rare_custom_div_edit');
+  const rareCustomInputEdit = document.getElementById('rare_custom_edit');
+
+  function toggleCustomRareEditField() {
+    if (rareSelectEdit.value === 'その他') {
+      rareCustomDivEdit.style.display = 'block';
+      rareCustomInputEdit.required = true; // 「その他」選択時は入力必須にする場合
+    } else {
+      rareCustomDivEdit.style.display = 'none';
+      rareCustomInputEdit.required = false;
+      // 編集時は、他の選択肢を選んでもカスタム入力欄の値をクリアしない方が良い場合もある
+      // rareCustomInputEdit.value = ''; 
+    }
+  }
+
+  rareSelectEdit.addEventListener('change', toggleCustomRareEditField);
+
+  // 初期表示時にも実行
+  document.addEventListener('DOMContentLoaded', function() {
+    // Ensure 'その他' is selected if current item.rare is not in defined rarities
+    const currentRareValue = "{{ item.rare or '' }}";
+    const raritiesArray = {{ rarities | tojson | safe }}; // Get rarities from Python
+    let isDefinedRarity = false;
+    for (let i = 0; i < raritiesArray.length; i++) {
+        if (raritiesArray[i] === currentRareValue) {
+            isDefinedRarity = true;
+            break;
+        }
+    }
+    // If current rare is not in the defined list (and not empty)
+    // and 'その他' option is not already selected by Jinja logic for this case
+    if (currentRareValue && !isDefinedRarity && rareSelectEdit.value !== 'その他') {
+        // This case might be tricky due to Jinja pre-selection.
+        // The Jinja logic for 'selected' on 'その他' should handle most cases.
+        // This JS part is a fallback or refinement.
+    }
+    
+    // If 'その他' is selected (either by Jinja or user), ensure the custom field value is set
+    if (rareSelectEdit.value === 'その他') {
+        if (!isDefinedRarity && currentRareValue) {
+             // Only set if rare_custom_edit is empty, to avoid overwriting user's re-submission on error
+            if (!rareCustomInputEdit.value.trim()) { 
+                rareCustomInputEdit.value = currentRareValue;
+            }
+        }
+    }
+    toggleCustomRareEditField(); // Call to set initial display state
+  });
+</script>
+{% endblock %}

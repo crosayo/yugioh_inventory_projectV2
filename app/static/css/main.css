@@ -1,0 +1,177 @@
+/* app/static/css/main.css */
+body {
+    padding-top: 56px; /* Adjust if navbar height changes, or use dynamic calculation if needed */
+    font-family: 'Roboto', sans-serif;
+    background-color: #f8f9fa; /* Light grey background for the page */
+    padding-bottom: 80px; /* Space for the fixed footer */
+}
+
+/* Override Bootstrap container for main content area if needed, or use as is */
+/*
+.container {
+    max-width: 1140px;
+    background-color: #ffffff;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 0 15px rgba(0,0,0,0.1);
+    margin-top: 1rem;
+}
+*/
+
+.table th, .table td {
+    text-align: center;
+    vertical-align: middle;
+}
+
+/* Pagination styling (Bootstrap's default is usually good) */
+.pagination {
+    display: flex;
+    justify-content: center;
+    gap: 0.3rem; 
+    margin-top: 1.5rem; 
+    flex-wrap: wrap; /* Allow pagination to wrap on smaller screens */
+}
+/*
+.pagination .page-item .page-link {
+    border-radius: 0.25rem;
+    padding: 0.375rem 0.75rem; 
+}
+.pagination .page-item.active .page-link { 
+    background-color: #0d6efd;
+    color: white;
+    border-color: #0d6efd;
+}
+.pagination .page-item.disabled .page-link { 
+    color: #6c757d;
+    pointer-events: none;
+    background-color: #e9ecef; 
+    border-color: #dee2e6;
+}
+*/
+
+/* Header controls (now part of navbar) */
+/*
+.header-controls {
+    display: flex;
+    gap: 0.5rem; 
+}
+*/
+
+/* Admin menu container (now part of navbar dropdown) */
+/*
+.admin-menu-container {
+    background-color: #e9ecef;
+    padding: 0.75rem 1rem;
+    border-radius: 0.3rem;
+    margin-bottom: 1.5rem;
+    border: 1px solid #dee2e6;
+}
+.admin-menu-container .admin-menu-title {
+    font-weight: bold;
+    margin-bottom: 0.5rem;
+    display: block;
+}
+.admin-menu-container .btn {
+    margin-right: 0.5rem;
+    margin-bottom: 0.5rem; 
+}
+*/
+
+/* Footer styling */
+.footer {
+    font-size: 0.9em;
+    /* border-top: 1px solid #dee2e6; */ /* Bootstrap bg-light already provides some separation */
+}
+
+/* For stock update buttons to be smaller and inline */
+.stock-update-form {
+    display: inline-block;
+    margin-left: 0.25rem;
+}
+
+.stock-update-form .btn-sm {
+    padding: 0.1rem 0.4rem; /* Smaller padding for + - buttons */
+    font-size: 0.8rem; /* Smaller font size */
+}
+
+/* Custom styling for search/filter forms if needed */
+.filter-form .form-label {
+    font-size: 0.9rem;
+    margin-bottom: 0.25rem;
+}
+
+.filter-form .form-select,
+.filter-form .form-control,
+.filter-form .btn {
+    font-size: 0.9rem; /* Slightly smaller form elements */
+}
+
+/* Specific styles for login page */
+.login-container {
+    max-width: 450px;
+    margin-top: 3rem;
+    padding: 2rem;
+    background-color: #fff;
+    border-radius: 0.5rem;
+    box-shadow: 0 0.5rem 1rem rgba(0,0,0,0.1);
+}
+
+/* Styles for add_item and edit_item pages */
+.item-form-container {
+    max-width: 600px; /* Slightly wider for forms with more fields */
+    margin-top: 2rem;
+    padding: 2rem;
+    background-color: #fff;
+    border-radius: 0.5rem;
+    box-shadow: 0 0.5rem 1rem rgba(0,0,0,0.1);
+}
+.item-form-container .form-label {
+    font-weight: 500;
+}
+
+/* Confirm delete page styling */
+.confirm-delete-container {
+    max-width: 500px;
+    margin-top: 3rem;
+}
+.confirm-delete-container .card {
+    border-color: var(--bs-danger-border-subtle);
+}
+.confirm-delete-container .card-header {
+    background-color: var(--bs-danger-bg-subtle);
+    color: var(--bs-danger-text);
+    font-weight: bold;
+}
+
+/* Top button from edit.html, if you want to keep it globally */
+#topBtn {
+    position: fixed;
+    bottom: 80px; /* Adjusted for fixed footer */
+    right: 20px;
+    z-index: 1030; /* Ensure it's above other elements like navbar */
+    background-color: #0d6efd;
+    color: #fff;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 50%;
+    font-size: 18px;
+    cursor: pointer;
+    display: none; /* Initially hidden, shown by JS */
+    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+}
+#topBtn:hover {
+    background-color: #0b5ed7;
+}
+
+/* Responsive adjustments */
+@media (max-width: 767.98px) {
+    .navbar-nav .nav-item .navbar-text {
+        display: none; /* Hide "Welcome user" text on small screens to save space */
+    }
+    .filter-form .col-md-2, .filter-form .col-md-4 {
+        margin-bottom: 0.5rem; /* Add some space between form elements when stacked */
+    }
+    body {
+        padding-top: 56px; /* Ensure navbar doesn't overlap */
+    }
+}

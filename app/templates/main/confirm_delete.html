@@ -1,0 +1,41 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container confirm-delete-container">
+  <div class="card mt-4">
+    <div class="card-header">
+      <h3 class="text-center text-danger mb-0">本当に削除しますか？</h3>
+    </div>
+    <div class="card-body">
+      <p>以下のカード情報をデータベースから完全に削除します。この操作は元に戻せません。</p>
+      <hr>
+      <dl class="row">
+        <dt class="col-sm-4">ID:</dt>
+        <dd class="col-sm-8">{{ item.id }}</dd>
+
+        <dt class="col-sm-4">名前:</dt>
+        <dd class="col-sm-8">{{ item.name }}</dd>
+
+        <dt class="col-sm-4">カードID:</dt>
+        <dd class="col-sm-8">{{ item.card_id or '(未設定)' }}</dd>
+
+        <dt class="col-sm-4">レアリティ:</dt>
+        <dd class="col-sm-8">{{ item.rare }}</dd>
+
+        <dt class="col-sm-4">在庫数:</dt>
+        <dd class="col-sm-8">{{ item.stock }}</dd>
+
+        <dt class="col-sm-4">カテゴリー:</dt>
+        <dd class="col-sm-8">{{ item.category or '-' }}</dd>
+      </dl>
+      <hr>
+      <form method="post" action="{{ url_for('main.delete_item', item_id=item.id) }}">
+        <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+          <a href="{{ request.referrer or url_for('main.index') }}" class="btn btn-outline-secondary">キャンセル</a>
+          <button type="submit" class="btn btn-danger">削除を実行する</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
