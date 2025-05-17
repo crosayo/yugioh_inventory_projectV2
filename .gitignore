@@ -1,0 +1,31 @@
+        # Python
+        *.py[cod]
+        __pycache__/
+        venv/
+        env/
+        *.egg-info/
+        instance/
+        dist/
+        build/
+        *.so
+        *.db
+        *.sqlite3
+
+        # Environment files - これらは絶対にコミットしないでください！
+        .env
+        .flaskenv
+        config.py # もしローカル設定用config.pyがある場合
+
+        # OS generated files
+        .DS_Store
+        Thumbs.db
+
+        # IDE specific
+        .vscode/
+        .idea/
+        *.sublime-project
+        *.sublime-workspace
+
+        # Uploads folder (もしリポジトリに含めたくない場合)
+        # app/uploads/
+        
