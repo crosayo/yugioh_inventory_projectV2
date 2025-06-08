@@ -1,0 +1,61 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2 class="text-center mb-4">管理機能：製品マスタCSVインポート</h2>
+
+    <div class="alert alert-info" role="alert">
+        <h4 class="alert-heading">CSVファイルの形式と処理について</h4>
+        <p>
+            この機能は、既存の製品マスタ（productsテーブル）の情報を一括で更新します。<br>
+            <strong>製品名（name）</strong>をキーとして、データベース内の該当する製品を特定し、その情報を更新します。
+        </p>
+        <ul>
+            <li><strong>文字コード:</strong> UTF-8 (BOM付き推奨) を想定しています。</li>
+            <li>
+                <strong>必須ヘッダー:</strong>
+                <ul>
+                    <li><code>name</code> (または <code>製品名</code>): 更新対象を特定するためのキーです。この列は必須です。</li>
+                    <li><code>release_date</code> (または <code>発売日</code>): 更新したい発売日。<code>YYYY-MM-DD</code> または <code>YYYY/MM/DD</code> 形式。この列は必須です。</li>
+                </ul>
+            </li>
+            <li>
+                <strong>任意ヘッダー:</strong>
+                <ul>
+                    <li><code>display_name</code> (または <code>表示名</code>): 更新する場合に指定します。</li>
+                    <li><code>show_in_sidebar</code> (または <code>サイドバー表示</code>): <code>TRUE</code>, <code>FALSE</code>, <code>1</code>, <code>0</code>などで指定します。</li>
+                </ul>
+            </li>
+            <li><strong>処理内容:</strong> CSVファイル内の各行について、<code>name</code>列の値と一致する製品をデータベースで探し、<code>release_date</code>やその他の任意列の情報を更新します。<code>era</code>（期）は発売日に基づいて自動的に再計算されます。</li>
+            <li><strong>注意:</strong> CSVに含まれていない製品は変更されません。また、この機能で新しい製品を追加することはできません。</li>
+        </ul>
+         <p class="mb-0"><strong>重要:</strong> この操作はデータベースを直接更新します。実行前にエクスポート機能でバックアップを取得することを推奨します。</p>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header fw-bold">
+            製品マスタ更新用CSVファイルアップロード
+        </div>
+        <div class="card-body">
+            <form method="post" enctype="multipart/form-data" action="{{ url_for('admin.import_products_csv') }}">
+                <div class="mb-3">
+                    <label for="csv_file" class="form-label">CSVファイルを選択してください:</label>
+                    <input class="form-control" type="file" id="csv_file" name="csv_file" required accept=".csv,text/csv">
+                </div>
+                <button type="submit" class="btn btn-primary">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-upload me-2" viewBox="0 0 16 16">
+                        <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
+                        <path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/>
+                    </svg>
+                    選択したCSVで製品マスタを更新
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div class="text-center mt-3">
+        <a href="{{ url_for('admin.manage_products') }}" class="btn btn-secondary">製品マスタ管理に戻る</a>
+    </div>
+
+</div>
+{% endblock %}

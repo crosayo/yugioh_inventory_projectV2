@@ -1,6 +1,6 @@
 # app/admin.py
 from flask import (
-    Blueprint, flash, redirect, render_template, request, url_for, current_app, session, jsonify
+    Blueprint, flash, redirect, render_template, request, url_for, current_app, session, jsonify, make_response
 )
 import psycopg2
 import psycopg2.extras
@@ -10,7 +10,7 @@ import io
 import os
 import re
 from werkzeug.utils import secure_filename
-
+import datetime #<-- 追加
 from app.db import get_db_connection
 from app.auth import login_required
 from app.data_definitions import DEFINED_RARITIES, RARITY_CONVERSION_MAP, calculate_era
@@ -637,11 +637,6 @@ def add_product():
                                product=product,
                                page_title='製品の新規登録')
 
-    return render_template('admin/product_form.html', 
-                           action_url=url_for('admin.add_product'),
-                           product={},
-                           page_title='製品の新規登録')
-
 
 @bp.route('/products/edit/<path:product_name>', methods=['GET', 'POST'])
 @login_required
@@ -708,6 +703,51 @@ def edit_product(product_name):
                            product=product,
                            page_title=f'製品の編集: {original_name}')
 
+# ===== ここから新規追加 =====
+@bp.route('/products/export')
+@login_required
+def export_products():
+    """製品マスタをCSVファイルとしてエクスポートする"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT name, display_name, release_date, era, show_in_sidebar FROM products ORDER BY release_date DESC")
+        products = cur.fetchall()
+    except (Exception, psycopg2.Error) as error:
+        flash(f'製品データのエクスポート中にエラーが発生しました: {error}', 'danger')
+        return redirect(url_for('admin.manage_products'))
+    finally:
+        if conn:
+            cur.close()
+            conn.close()
+
+    # CSVファイルを作成
+    si = io.StringIO()
+    si.write('\ufeff') # BOM for Excel
+    cw = csv.writer(si)
+    
+    # ヘッダー
+    headers = ['name', 'display_name', 'release_date', 'era', 'show_in_sidebar']
+    cw.writerow(headers)
+
+    # データ行
+    for product in products:
+        # 日付オブジェクトを文字列に変換
+        row = list(product)
+        if isinstance(row[2], datetime.date):
+            row[2] = row[2].strftime('%Y-%m-%d')
+        cw.writerow(row)
+    
+    output = make_response(si.getvalue())
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"products_export_{timestamp}.csv"
+    output.headers["Content-Disposition"] = f"attachment; filename=\"{filename}\""
+    output.headers["Content-type"] = "text/csv; charset=utf-8"
+    
+    return output
+# ===== ここまで新規追加 =====
+
 @bp.route('/api/products/toggle_sidebar/<path:product_name>', methods=['POST'])
 @login_required
 def api_toggle_sidebar(product_name):
@@ -738,3 +778,190 @@ def api_toggle_sidebar(product_name):
     finally:
         if conn:
             conn.close()
+
+# 新しい製品削除のルートとロジックを追加
+@bp.route('/products/delete/<path:product_name>', methods=['POST'])
+@login_required
+def delete_product(product_name):
+    original_name = unquote(product_name)
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # 関連するアイテムの数をチェック
+        cur.execute("SELECT COUNT(*) FROM items WHERE category = %s", (original_name,))
+        item_count = cur.fetchone()['count']
+
+        if item_count > 0:
+            flash(f'製品「{original_name}」に関連付けられているカードが{item_count}件あります。関連するカードがあるカテゴリは削除できません。先にカード情報を編集してください。', 'danger')
+            current_app.logger.warning(f"Attempt to delete product '{original_name}' failed: {item_count} associated items exist.")
+            return redirect(url_for('admin.manage_products'))
+        
+        # 製品を削除
+        cur.execute("DELETE FROM products WHERE name = %s", (original_name,))
+        conn.commit()
+        flash(f'製品「{original_name}」を削除しました。', 'info')
+        current_app.logger.info(f"Product deleted: '{original_name}'")
+
+    except (Exception, psycopg2.Error) as e:
+        if conn: conn.rollback()
+        error_message = f"製品「{original_name}」の削除中にデータベースエラーが発生しました: {e}"
+        current_app.logger.error(f"Error deleting product: {error_message}\n{traceback.format_exc()}")
+        flash(error_message, 'danger')
+    finally:
+        if conn:
+            if 'cur' in locals() and cur and not cur.closed:
+                cur.close()
+            conn.close()
+    return redirect(url_for('admin.manage_products'))
+
+def process_products_csv(file_stream):
+    """
+    製品マスタ(products)更新用のCSVファイルを処理する。
+    'name' 列をキーとして、'release_date' を更新し、'era' を再計算する。
+    オプションで 'display_name', 'show_in_sidebar' も更新する。
+    """
+    stats = {'updated': 0, 'not_found': 0, 'error': 0, 'total': 0}
+    errors = []
+    
+    try:
+        # BOM付きUTF-8を考慮してデコード
+        content = file_stream.read().decode('utf-8-sig')
+        reader = csv.DictReader(io.StringIO(content))
+        
+        # ヘッダーの正規化
+        header_map = {
+            'name': ['name', '製品名'],
+            'release_date': ['release_date', '発売日'],
+            'display_name': ['display_name', '表示名'],
+            'show_in_sidebar': ['show_in_sidebar', 'サイドバー表示']
+        }
+        
+        # CSVファイルのヘッダーを小文字に変換して、どのキーが使えるかマッピングする
+        normalized_headers = {h.lower(): h for h in reader.fieldnames}
+        
+        # どの列名を使うかを決定
+        mapped_cols = {}
+        for key, possible_names in header_map.items():
+            for name in possible_names:
+                if name.lower() in normalized_headers:
+                    mapped_cols[key] = normalized_headers[name.lower()]
+                    break
+        
+        if 'name' not in mapped_cols or 'release_date' not in mapped_cols:
+            errors.append("CSVヘッダーに 'name' (製品名) と 'release_date' (発売日) が必要です。")
+            stats['error'] = 1 # ファイル全体のエラーとしてカウント
+            return stats, errors
+
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            for i, row in enumerate(reader):
+                stats['total'] += 1
+                row_num = i + 2
+                
+                product_name = row.get(mapped_cols['name'], '').strip()
+                release_date_str = row.get(mapped_cols['release_date'], '').strip()
+
+                if not product_name or not release_date_str:
+                    errors.append(f"行 {row_num}: 製品名または発売日が空です。スキップしました。")
+                    stats['error'] += 1
+                    continue
+                
+                # 日付形式の検証
+                try:
+                    datetime.datetime.strptime(release_date_str, '%Y-%m-%d')
+                except ValueError:
+                    try:
+                        # YYYY/MM/DD形式も試す
+                        release_date_obj = datetime.datetime.strptime(release_date_str, '%Y/%m/%d')
+                        release_date_str = release_date_obj.strftime('%Y-%m-%d')
+                    except ValueError:
+                        errors.append(f"行 {row_num} ({product_name}): 発売日の形式が不正です ('YYYY-MM-DD' または 'YYYY/MM/DD' を使用してください): {release_date_str}")
+                        stats['error'] += 1
+                        continue
+
+                new_era = calculate_era(release_date_str)
+                
+                # 更新する値の準備
+                updates = {
+                    'release_date': release_date_str,
+                    'era': new_era
+                }
+                
+                if 'display_name' in mapped_cols and row.get(mapped_cols['display_name']):
+                    updates['display_name'] = row.get(mapped_cols['display_name'], '').strip()
+                
+                if 'show_in_sidebar' in mapped_cols:
+                    show_val = row.get(mapped_cols['show_in_sidebar'], '').strip().lower()
+                    if show_val in ['true', '1', 'yes', 't']:
+                        updates['show_in_sidebar'] = True
+                    elif show_val in ['false', '0', 'no', 'f', '']:
+                        updates['show_in_sidebar'] = False
+
+                # SQLクエリの動的生成
+                set_clauses = [f"{key} = %s" for key in updates.keys()]
+                sql = f"UPDATE products SET {', '.join(set_clauses)} WHERE name = %s"
+                
+                params = list(updates.values()) + [product_name]
+                
+                cur.execute(sql, tuple(params))
+                
+                if cur.rowcount > 0:
+                    stats['updated'] += 1
+                else:
+                    stats['not_found'] += 1
+                    errors.append(f"行 {row_num}: 製品 '{product_name}' がデータベースに見つかりませんでした。")
+            
+            conn.commit()
+
+    except (Exception, psycopg2.Error) as e:
+        if 'conn' in locals() and conn:
+            conn.rollback()
+        current_app.logger.error(f"製品CSVの処理中にエラーが発生しました: {e}\n{traceback.format_exc()}")
+        errors.append(f"致命的なエラーが発生しました: {e}")
+        stats['error'] += 1
+    finally:
+        if 'conn' in locals() and conn:
+            conn.close()
+
+    return stats, errors
+
+
+@bp.route('/products/import', methods=['GET', 'POST'])
+@login_required
+def import_products_csv():
+    """製品マスタをCSVから一括更新するページ"""
+    if request.method == 'POST':
+        if 'csv_file' not in request.files:
+            flash('ファイルが選択されていません。', 'warning')
+            return redirect(request.url)
+        
+        file = request.files['csv_file']
+
+        if file.filename == '':
+            flash('ファイルが選択されていません。', 'warning')
+            return redirect(request.url)
+        
+        if file and allowed_file(file.filename):
+            stats, errors = process_products_csv(file.stream)
+            
+            if stats['updated'] > 0:
+                flash(f"{stats['updated']}件の製品情報が正常に更新されました。", 'success')
+            
+            if stats['not_found'] > 0:
+                flash(f"{stats['not_found']}件の製品がDBに見つからず、スキップされました。", 'warning')
+            
+            if stats['error'] > 0:
+                flash(f"{stats['error']}件の処理でエラーが発生しました。詳細はログを確認してください。", 'danger')
+
+            if not any([stats['updated'], stats['not_found'], stats['error']]):
+                    flash('CSVファイルが空か、処理対象のデータがありませんでした。', 'info')
+
+            # 詳細なエラーメッセージをflashで表示
+            for error_msg in errors:
+                flash(error_msg, 'danger')
+
+            return redirect(url_for('admin.manage_products'))
+
+    return render_template('admin/import_products.html')
