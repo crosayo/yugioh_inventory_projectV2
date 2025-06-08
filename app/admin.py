@@ -8,17 +8,18 @@ import traceback
 import csv
 import io
 import os
-import re # 正規表現モジュールをインポート
+import re
 from werkzeug.utils import secure_filename
 
 from app.db import get_db_connection
 from app.auth import login_required
-from app.data_definitions import DEFINED_RARITIES, RARITY_CONVERSION_MAP
+from app.data_definitions import DEFINED_RARITIES, RARITY_CONVERSION_MAP, calculate_era
+from urllib.parse import unquote, quote
+
 
 ALLOWED_EXTENSIONS = {'csv'}
 bp = Blueprint('admin', __name__, url_prefix='/admin')
 
-# --- ヘッダーマッピングの定義 ---
 CSV_HEADER_MAP = {
     'name': ['name', '名前', '名称'],
     'card_id': ['card_id', 'カードid', 'カードID', '型番'],
@@ -228,7 +229,7 @@ def admin_import_csv():
                     current_csv_row_num_for_log = 0
                     file_had_db_error_preventing_commit = False
                     file_had_committable_change_this_file = False
-                    num_total_rows_in_file = 0 # 初期化
+                    num_total_rows_in_file = 0
 
                     current_app.logger.info(f"--- Processing CSV file #{file_idx + 1}/{len(files)}: '{original_filename_for_display}' (Savepoint: {savepoint_name}) ---")
                     current_app.logger.info(f"Derived category name for this file (fallback): '{category_name_from_filename}'")
@@ -246,13 +247,8 @@ def admin_import_csv():
                                 continue
 
                             try:
-                                # --- ▼▼▼ 総行数を事前に取得 ▼▼▼ ---
-                                # file_obj.stream はTextIOWrapperでラップされている可能性があるため、
-                                # バイトストリーム (file_obj.stream.buffer) を使うか、
-                                # TextIOWrapperを再作成する
-                                # ここでは、再度TextIOWrapperを作成するアプローチを取る
-                                file_content_for_count = file_obj.read() # 全て読み込む
-                                file_obj.seek(0) # ストリームを先頭に戻す
+                                file_content_for_count = file_obj.read() 
+                                file_obj.seek(0)
                                 
                                 temp_file_like_object_for_count = io.StringIO(file_content_for_count.decode('utf-8-sig'))
                                 temp_reader_for_count = csv.reader(temp_file_like_object_for_count)
@@ -263,9 +259,7 @@ def admin_import_csv():
                                 except StopIteration: 
                                     num_total_rows_in_file = 0
                                     current_app.logger.info(f"File '{original_filename_for_display}' appears to be empty or header-only.")
-                                # file_streamの作成はDictReaderの前で行う
-                                file_stream = io.StringIO(file_content_for_count.decode('utf-8-sig')) # デコードしたコンテンツでStringIOを再作成
-                                # --- ▲▲▲ 総行数を事前に取得 ▲▲▲ ---
+                                file_stream = io.StringIO(file_content_for_count.decode('utf-8-sig'))
                                 
                                 csv_reader = csv.DictReader(file_stream)
                                 csv_headers_original = csv_reader.fieldnames or []
@@ -304,19 +298,16 @@ def admin_import_csv():
                                         return val.strip() if isinstance(val, str) else val
                                     return default_val
                                 
-                                # --- ▼▼▼ 進捗表示のための設定 ▼▼▼ ---
                                 report_interval = 1000 
                                 if num_total_rows_in_file > 0 and num_total_rows_in_file < report_interval * 5: 
                                     report_interval = max(100, num_total_rows_in_file // 10) 
-                                if report_interval == 0 and num_total_rows_in_file > 0 : # 総行数が非常に少ない場合の対策
+                                if report_interval == 0 and num_total_rows_in_file > 0 :
                                      report_interval = 1
-                                # --- ▲▲▲ 進捗表示のための設定 ▲▲▲ ---
 
                                 for row_idx_in_file, row_data_dict in enumerate(csv_reader):
-                                    current_csv_row_num_for_log = row_idx_in_file + 1 # データ行のインデックスは0からなので+1
+                                    current_csv_row_num_for_log = row_idx_in_file + 1
                                     file_processing_summary['rows_processed_in_file'] += 1
                                     
-                                    # --- ▼▼▼ 定期的な進捗ログ出力 ▼▼▼ ---
                                     if num_total_rows_in_file > 0 and report_interval > 0 and \
                                        (current_csv_row_num_for_log % report_interval == 0 or current_csv_row_num_for_log == num_total_rows_in_file):
                                         progress_percent = (current_csv_row_num_for_log / num_total_rows_in_file * 100)
@@ -324,9 +315,8 @@ def admin_import_csv():
                                             f"  File '{original_filename_for_display}': Processing row {current_csv_row_num_for_log}/{num_total_rows_in_file} "
                                             f"({progress_percent:.2f}%)"
                                         )
-                                    elif num_total_rows_in_file == 0 and (row_idx_in_file + 1) % 1000 == 0 : # 総行数不明だが一定行ごと
+                                    elif num_total_rows_in_file == 0 and (row_idx_in_file + 1) % 1000 == 0 :
                                         current_app.logger.info(f"  File '{original_filename_for_display}': Processing row {row_idx_in_file + 1}...")
-                                    # --- ▲▲▲ 定期的な進捗ログ出力 ▲▲▲ ---
                                     
                                     card_name = get_val_from_row(row_data_dict, 'name')
                                     card_id_csv = get_val_from_row(row_data_dict, 'card_id')
@@ -410,13 +400,10 @@ def admin_import_csv():
                                 current_app.logger.warning(f"Rolled back to savepoint {savepoint_name} for file '{original_filename_for_display}' due to errors.")
                                 file_processing_summary['added'] = 0
                                 file_processing_summary['updated_info'] = 0
-                                # エラー発生時点で処理した行数までをエラーカウントに含めるか、あるいは未処理行をエラーとしてカウント
-                                # ここでは、エラー発生行以降は処理されないので、そのファイル内の処理済み行数でエラーが起きたと見なす
-                                # 正確には、breakまでに処理した行から成功分を引いたものがエラー行だが、ここでは簡略化
-                                if file_processing_summary['rows_processed_in_file'] > 0: # 少なくとも1行は処理しようとした場合
+                                if file_processing_summary['rows_processed_in_file'] > 0:
                                      file_processing_summary['skipped_error_row'] = file_processing_summary['rows_processed_in_file'] - (file_processing_summary['added'] + file_processing_summary['updated_info'] + file_processing_summary['skipped_no_change'])
-                                else: # ヘッダー読み込みなどでエラーになった場合など
-                                    file_processing_summary['skipped_error_row'] = 1 # ファイル自体を1エラーとしてカウント
+                                else:
+                                    file_processing_summary['skipped_error_row'] = 1
 
                             elif file_had_committable_change_this_file:
                                 cur.execute(f"RELEASE SAVEPOINT {savepoint_name}")
@@ -442,7 +429,7 @@ def admin_import_csv():
 
                 elif file_obj and not allowed_file(file_obj.filename):
                     err_msg = f"拡張子不正 ({os.path.splitext(file_obj.filename)[1]})。CSVファイルのみ許可。"
-                    key_for_error_msg = file_obj.filename # この時点では original_filename_for_display は未設定
+                    key_for_error_msg = file_obj.filename
                     if key_for_error_msg not in error_file_messages: error_file_messages[key_for_error_msg] = []
                     error_file_messages[key_for_error_msg].append(err_msg)
                     overall_summary_stats['skipped_error_row'] += 1
@@ -505,3 +492,256 @@ def admin_import_csv():
         return redirect(url_for('admin.admin_import_csv'))
 
     return render_template('admin/admin_import_csv.html')
+
+@bp.route('/check_categories')
+@login_required
+def admin_check_categories():
+    conn = None
+    unmatched_categories = []
+    matched_but_null_date = []
+    
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        cur.execute("SELECT DISTINCT category FROM items WHERE category IS NOT NULL AND category != '' ORDER BY category")
+        items_categories_raw = [row['category'] for row in cur.fetchall()]
+        
+        cur.execute("SELECT name, release_date FROM products WHERE name IS NOT NULL AND name != ''")
+        products_raw = cur.fetchall()
+
+        products_map_normalized = {
+            row['name'].strip().lower(): row for row in products_raw
+        }
+
+        for category in items_categories_raw:
+            normalized_cat = category.strip().lower()
+            matching_product = products_map_normalized.get(normalized_cat)
+
+            if not matching_product:
+                unmatched_categories.append(category)
+            elif matching_product['release_date'] is None:
+                matched_but_null_date.append(category)
+
+        total_issues = len(unmatched_categories) + len(matched_but_null_date)
+        if total_issues > 0:
+            flash(f"合計 {total_issues} 件のカテゴリでデータの問題が発見されました。詳細は以下を確認してください。", "warning")
+        else:
+            flash("素晴らしい！全てのアイテムカテゴリが製品マスタと正常に紐付いています。", "success")
+
+    except (Exception, psycopg2.Error) as error:
+        current_app.logger.error(f"Error in admin_check_categories: {error}")
+        traceback.print_exc()
+        flash(f"カテゴリのチェック中にエラーが発生しました: {error}", "danger")
+    finally:
+        if conn:
+            if 'cur' in locals() and not cur.closed:
+                cur.close()
+            conn.close()
+
+    return render_template(
+        'admin/admin_check_categories.html', 
+        unmatched_categories=unmatched_categories,
+        matched_but_null_date=matched_but_null_date
+    )
+
+@bp.route('/products')
+@login_required
+def manage_products():
+    """製品マスタの一覧表示ページ"""
+    conn = None
+    search_keyword = request.args.get('keyword', '').strip()
+    sort_key = request.args.get('sort_key', 'release_date')
+    sort_order = request.args.get('sort_order', 'desc')
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # `show_in_sidebar`列も取得するように変更
+        query = "SELECT name, display_name, release_date, era, show_in_sidebar FROM products"
+        params = []
+        
+        if search_keyword:
+            query += " WHERE LOWER(name) LIKE %s OR LOWER(display_name) LIKE %s"
+            params.append(f"%{search_keyword.lower()}%")
+            params.append(f"%{search_keyword.lower()}%")
+            
+        valid_sort_keys = ['name', 'display_name', 'release_date', 'era', 'show_in_sidebar']
+        if sort_key not in valid_sort_keys:
+            sort_key = 'release_date'
+        if sort_order not in ['asc', 'desc']:
+            sort_order = 'desc'
+            
+        query += f" ORDER BY {sort_key} {sort_order.upper()}"
+        
+        cur.execute(query, tuple(params))
+        products = cur.fetchall()
+
+    except (Exception, psycopg2.Error) as error:
+        flash(f'製品リストの取得中にエラーが発生しました: {error}', 'danger')
+        products = []
+    finally:
+        if conn:
+            cur.close()
+            conn.close()
+
+    return render_template('admin/manage_products.html', 
+                           products=products, 
+                           keyword=search_keyword,
+                           sort_key=sort_key,
+                           sort_order=sort_order)
+
+@bp.route('/products/add', methods=['GET', 'POST'])
+@login_required
+def add_product():
+    """新しい製品を登録するページ"""
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        display_name = request.form.get('display_name', '').strip()
+        release_date_str = request.form.get('release_date', '').strip()
+        # チェックボックスの値を取得
+        show_in_sidebar = request.form.get('show_in_sidebar') == 'on'
+
+        if not name or not release_date_str:
+            flash('製品名と発売日は必須です。', 'danger')
+            return render_template('admin/product_form.html', 
+                                   action_url=url_for('admin.add_product'), 
+                                   product={'name': name, 'display_name': display_name, 'release_date': release_date_str, 'show_in_sidebar': show_in_sidebar},
+                                   page_title='製品の新規登録')
+        
+        era = calculate_era(release_date_str)
+        conn = None
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            # INSERT文にshow_in_sidebarを追加
+            cur.execute(
+                "INSERT INTO products (name, display_name, release_date, era, show_in_sidebar) VALUES (%s, %s, %s, %s, %s)",
+                (name, display_name or name, release_date_str, era, show_in_sidebar)
+            )
+            conn.commit()
+            flash(f'製品「{name}」を登録しました。', 'success')
+            return redirect(url_for('admin.manage_products'))
+        except psycopg2.IntegrityError:
+            conn.rollback()
+            flash(f'エラー: 製品名「{name}」は既に存在します。', 'danger')
+        except (Exception, psycopg2.Error) as error:
+            conn.rollback()
+            flash(f'データベース登録中にエラーが発生しました: {error}', 'danger')
+        finally:
+            if conn:
+                cur.close()
+                conn.close()
+        
+        product = {'name': name, 'display_name': display_name, 'release_date': release_date_str, 'show_in_sidebar': show_in_sidebar}
+        return render_template('admin/product_form.html',
+                               action_url=url_for('admin.add_product'),
+                               product=product,
+                               page_title='製品の新規登録')
+
+    return render_template('admin/product_form.html', 
+                           action_url=url_for('admin.add_product'),
+                           product={},
+                           page_title='製品の新規登録')
+
+
+@bp.route('/products/edit/<path:product_name>', methods=['GET', 'POST'])
+@login_required
+def edit_product(product_name):
+    """既存の製品を編集するページ"""
+    original_name = unquote(product_name)
+    conn = None
+
+    if request.method == 'POST':
+        new_name = request.form.get('name', '').strip()
+        new_display_name = request.form.get('display_name', '').strip()
+        new_release_date_str = request.form.get('release_date', '').strip()
+        # チェックボックスの値を取得
+        new_show_in_sidebar = request.form.get('show_in_sidebar') == 'on'
+
+
+        if not new_name or not new_release_date_str:
+            flash('製品名と発売日は必須です。', 'danger')
+            return render_template('admin/product_form.html', 
+                                   action_url=url_for('admin.edit_product', product_name=product_name),
+                                   product={'name': new_name, 'display_name': new_display_name, 'release_date': new_release_date_str, 'show_in_sidebar': new_show_in_sidebar},
+                                   page_title=f'製品の編集: {original_name}')
+        
+        new_era = calculate_era(new_release_date_str)
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            # UPDATE文にshow_in_sidebarを追加
+            cur.execute(
+                "UPDATE products SET name=%s, display_name=%s, release_date=%s, era=%s, show_in_sidebar=%s WHERE name=%s",
+                (new_name, new_display_name or new_name, new_release_date_str, new_era, new_show_in_sidebar, original_name)
+            )
+            conn.commit()
+            flash(f'製品「{original_name}」の情報を更新しました。', 'success')
+            return redirect(url_for('admin.manage_products'))
+        except psycopg2.IntegrityError:
+            conn.rollback()
+            flash(f'エラー: 更新後の製品名「{new_name}」は既に別の製品で使われています。', 'danger')
+        except (Exception, psycopg2.Error) as error:
+            conn.rollback()
+            flash(f'データベース更新中にエラーが発生しました: {error}', 'danger')
+        finally:
+            if conn:
+                cur.close()
+                conn.close()
+
+    # GETリクエストの処理
+    product = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        # show_in_sidebarも取得
+        cur.execute("SELECT name, display_name, release_date, era, show_in_sidebar FROM products WHERE name = %s", (original_name,))
+        product = cur.fetchone()
+    except (Exception, psycopg2.Error) as error:
+        flash(f'製品情報の取得中にエラーが発生しました: {error}', 'danger')
+    finally:
+        if conn:
+            cur.close()
+            conn.close()
+
+    if not product:
+        flash(f'製品「{original_name}」が見つかりません。', 'warning')
+        return redirect(url_for('admin.manage_products'))
+
+    return render_template('admin/product_form.html',
+                           action_url=url_for('admin.edit_product', product_name=quote(original_name)),
+                           product=product,
+                           page_title=f'製品の編集: {original_name}')
+
+# app/admin.py の末尾に追加
+
+@bp.route('/products/toggle_sidebar/<path:product_name>', methods=['POST'])
+@login_required
+def toggle_sidebar_visibility(product_name):
+    """製品のサイドバー表示/非表示を切り替える"""
+    product_to_toggle = unquote(product_name)
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        # SQLの NOT を使って、現在の値の反対の値を設定する
+        cur.execute(
+            "UPDATE products SET show_in_sidebar = NOT show_in_sidebar WHERE name = %s",
+            (product_to_toggle,)
+        )
+        conn.commit()
+        flash(f"製品「{product_to_toggle}」のサイドバー表示設定を切り替えました。", "info")
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        flash(f"設定の切り替え中にエラーが発生しました: {e}", "danger")
+        current_app.logger.error(f"Error toggling sidebar visibility for {product_to_toggle}: {e}")
+    finally:
+        if conn:
+            cur.close()
+            conn.close()
+    
+    # 操作前のページ（検索やソートの状態を維持した一覧）に戻る
+    return redirect(request.referrer or url_for('admin.manage_products'))

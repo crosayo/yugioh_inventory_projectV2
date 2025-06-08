@@ -10,8 +10,16 @@
     {% block head_extra %}{% endblock %}
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4 fixed-top">
         <div class="container-fluid">
+            {# ===== ここから変更：サイドバー表示ボタン ===== #}
+            <button class="btn btn-dark" type="button" data-bs-toggle="offcanvas" data-bs-target="#sidebar" aria-controls="sidebar">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" class="bi bi-list" viewBox="0 0 16 16">
+                    <path fill-rule="evenodd" d="M2.5 12a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5z"/>
+                </svg>
+            </button>
+            {# ===== ここまで変更 ===== #}
+
             <a class="navbar-brand" href="{{ url_for('main.index') }}">遊戯王在庫管理</a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNavDropdown" aria-controls="navbarNavDropdown" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
@@ -30,9 +38,11 @@
                             管理メニュー
                         </a>
                         <ul class="dropdown-menu dropdown-menu-dark" aria-labelledby="adminMenuDropdown">
-                            <li><a class="dropdown-item {% if request.endpoint == 'admin.unify_rarities' %}active{% endif %}" href="{{ url_for('admin.admin_unify_rarities') }}">DBレアリティ統一</a></li>
-                            <li><a class="dropdown-item {% if request.endpoint == 'admin.import_csv' %}active{% endif %}" href="{{ url_for('admin.admin_import_csv') }}">CSVインポート</a></li>
-                            <li><a class="dropdown-item {% if request.endpoint == 'admin.batch_register' %}active{% endif %}" href="{{ url_for('admin.admin_batch_register') }}">一括カード登録</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('admin.admin_unify_rarities') }}">DBレアリティ統一</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('admin.admin_import_csv') }}">CSVインポート</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('admin.admin_batch_register') }}">一括カード登録</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('admin.admin_check_categories') }}">カテゴリ不一致チェック</a></li>
+                            <li><a class="dropdown-item {% if request.endpoint in ['admin.manage_products', 'admin.add_product', 'admin.edit_product'] %}active{% endif %}" href="{{ url_for('admin.manage_products') }}">製品マスタ管理</a></li>
                             <li><hr class="dropdown-divider"></li>
                             <li><a class="dropdown-item" href="{{ url_for('main.download_csv') }}">CSVバックアップ</a></li>
                         </ul>
@@ -59,7 +69,43 @@
         </div>
     </nav>
 
-    <main class="container mt-4 mb-5 pb-5"> {# Added pb-5 for more space before footer #}
+    {# ===== ここから追加：サイドバー本体 ===== #}
+    <div class="offcanvas offcanvas-start" tabindex="-1" id="sidebar" aria-labelledby="sidebarLabel">
+        <div class="offcanvas-header">
+            <h5 class="offcanvas-title" id="sidebarLabel">カテゴリで絞り込み</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+        </div>
+        <div class="offcanvas-body">
+            <div class="accordion" id="categoryAccordion">
+                {% for era in sidebar_era_order %}
+                    {% if sidebar_data[era] %}
+                    <div class="accordion-item">
+                        <h2 class="accordion-header" id="heading-{{ era }}">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-{{ era }}" aria-expanded="false" aria-controls="collapse-{{ era }}">
+                                {{ sidebar_era_names[era] }}
+                            </button>
+                        </h2>
+                        <div id="collapse-{{ era }}" class="accordion-collapse collapse" aria-labelledby="heading-{{ era }}" data-bs-parent="#categoryAccordion">
+                            <div class="list-group list-group-flush">
+                                {% for product in sidebar_data[era] %}
+                                <a href="{{ url_for('main.index', category=product.name) }}" class="list-group-item list-group-item-action">
+                                    {{ product.display_name }}
+                                </a>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                {% endfor %}
+            </div>
+            <div class="d-grid mt-3">
+                 <a href="{{ url_for('main.index') }}" class="btn btn-outline-secondary">絞り込みをリセット</a>
+            </div>
+        </div>
+    </div>
+    {# ===== ここまで追加 ===== #}
+
+    <main class="container mt-4 mb-5 pb-5"> 
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}

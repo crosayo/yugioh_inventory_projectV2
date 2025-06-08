@@ -1,0 +1,39 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container item-form-container">
+    <h2 class="text-center mb-4">{{ page_title }}</h2>
+
+    <form method="post" action="{{ action_url }}">
+        <div class="mb-3">
+            <label for="name" class="form-label">製品名 (主キー) <span class="text-danger">*</span></label>
+            <input type="text" id="name" name="name" class="form-control" value="{{ product.name or '' }}" required>
+            <div class="form-text">データベースの主キーとして使われます。カード情報テーブルのカテゴリと完全に一致させる必要があります。</div>
+        </div>
+
+        <div class="mb-3">
+            <label for="display_name" class="form-label">表示名</label>
+            <input type="text" id="display_name" name="display_name" class="form-control" value="{{ product.display_name or '' }}">
+            <div class="form-text">サイドバーなどで表示される名前。空の場合は製品名が使われます。</div>
+        </div>
+
+        <div class="mb-3">
+            <label for="release_date" class="form-label">発売日 <span class="text-danger">*</span></label>
+            <input type="date" id="release_date" name="release_date" class="form-control" value="{{ product.release_date.strftime('%Y-%m-%d') if product.release_date else '' }}" required>
+            <div class="form-text">この日付を元に「期」が自動で計算されます。</div>
+        </div>
+        
+        <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="show_in_sidebar" name="show_in_sidebar" {% if product.show_in_sidebar %}checked{% endif %}>
+            <label class="form-check-label" for="show_in_sidebar">
+                サイドバーに表示する
+            </label>
+        </div>
+
+        <div class="d-grid gap-2 mt-4">
+            <button type="submit" class="btn btn-primary btn-lg">保存する</button>
+            <a href="{{ url_for('admin.manage_products') }}" class="btn btn-outline-secondary">キャンセル</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

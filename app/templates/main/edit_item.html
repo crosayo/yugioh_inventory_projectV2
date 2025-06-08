@@ -4,8 +4,6 @@
 <div class="container item-form-container">
   <h2 class="text-center mb-4">商品編集 (ID: {{ item.id }})</h2>
 
-  {# Flash messages are handled in layout.html #}
-
   <form method="post" action="{{ url_for('main.edit_item', item_id=item.id) }}">
     <div class="mb-3">
       <label for="name" class="form-label">名前 <span class="text-danger">*</span></label>
@@ -15,7 +13,6 @@
     <div class="mb-3">
       <label for="card_id_display" class="form-label">カードID (型番)</label>
       <input type="text" id="card_id_display" class="form-control" value="{{ item.card_id or '(未設定)' }}" disabled readonly title="カードIDは変更できません">
-      {# Card ID is generally not editable once set, or requires special handling #}
     </div>
 
     <div class="mb-3">
@@ -43,7 +40,12 @@
 
     <div class="mb-3">
       <label for="category" class="form-label">カテゴリー（収録パックなど）</label>
-      <input type="text" id="category" name="category" class="form-control" value="{{ item.category or '' }}" placeholder="例: HISTORY ARCHIVE COLLECTION">
+      <input class="form-control" list="product-list" id="category" name="category" value="{{ item.category or '' }}" placeholder="入力またはリストから選択...">
+      <datalist id="product-list">
+        {% for product_name in product_names %}
+          <option value="{{ product_name }}">
+        {% endfor %}
+      </datalist>
     </div>
 
     <div class="mb-3">
@@ -65,25 +67,21 @@
   const rareCustomDivEdit = document.getElementById('rare_custom_div_edit');
   const rareCustomInputEdit = document.getElementById('rare_custom_edit');
 
-  function toggleCustomRareEditField() {
+  function toggleCustomRareField() {
     if (rareSelectEdit.value === 'その他') {
       rareCustomDivEdit.style.display = 'block';
-      rareCustomInputEdit.required = true; // 「その他」選択時は入力必須にする場合
+      rareCustomInputEdit.required = true;
     } else {
       rareCustomDivEdit.style.display = 'none';
       rareCustomInputEdit.required = false;
-      // 編集時は、他の選択肢を選んでもカスタム入力欄の値をクリアしない方が良い場合もある
-      // rareCustomInputEdit.value = ''; 
     }
   }
 
-  rareSelectEdit.addEventListener('change', toggleCustomRareEditField);
+  rareSelectEdit.addEventListener('change', toggleCustomRareField);
 
-  // 初期表示時にも実行
   document.addEventListener('DOMContentLoaded', function() {
-    // Ensure 'その他' is selected if current item.rare is not in defined rarities
     const currentRareValue = "{{ item.rare or '' }}";
-    const raritiesArray = {{ rarities | tojson | safe }}; // Get rarities from Python
+    const raritiesArray = {{ rarities | tojson | safe }};
     let isDefinedRarity = false;
     for (let i = 0; i < raritiesArray.length; i++) {
         if (raritiesArray[i] === currentRareValue) {
@@ -91,24 +89,15 @@
             break;
         }
     }
-    // If current rare is not in the defined list (and not empty)
-    // and 'その他' option is not already selected by Jinja logic for this case
-    if (currentRareValue && !isDefinedRarity && rareSelectEdit.value !== 'その他') {
-        // This case might be tricky due to Jinja pre-selection.
-        // The Jinja logic for 'selected' on 'その他' should handle most cases.
-        // This JS part is a fallback or refinement.
-    }
     
-    // If 'その他' is selected (either by Jinja or user), ensure the custom field value is set
     if (rareSelectEdit.value === 'その他') {
         if (!isDefinedRarity && currentRareValue) {
-             // Only set if rare_custom_edit is empty, to avoid overwriting user's re-submission on error
             if (!rareCustomInputEdit.value.trim()) { 
                 rareCustomInputEdit.value = currentRareValue;
             }
         }
     }
-    toggleCustomRareEditField(); // Call to set initial display state
+    toggleCustomRareField();
   });
 </script>
 {% endblock %}

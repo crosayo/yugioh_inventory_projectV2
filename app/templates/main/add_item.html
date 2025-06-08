@@ -4,8 +4,6 @@
 <div class="container item-form-container">
   <h2 class="text-center mb-4">新しいカードを登録</h2>
 
-  {# Flash messages are handled in layout.html #}
-
   <form method="post" action="{{ url_for('main.add_item') }}">
     <div class="mb-3">
       <label for="name" class="form-label">名前 <span class="text-danger">*</span></label>
@@ -34,7 +32,12 @@
 
     <div class="mb-3">
       <label for="category" class="form-label">カテゴリー（収録パックなど）</label>
-      <input type="text" id="category" name="category" class="form-control" value="{{ prefill_category or '' }}" placeholder="例: HISTORY ARCHIVE COLLECTION">
+      <input class="form-control" list="product-list" id="category" name="category" value="{{ prefill_category or '' }}" placeholder="入力またはリストから選択...">
+      <datalist id="product-list">
+        {% for product_name in product_names %}
+          <option value="{{ product_name }}">
+        {% endfor %}
+      </datalist>
     </div>
 
     <div class="mb-3">
@@ -59,17 +62,16 @@
   function toggleCustomRareField() {
     if (rareSelect.value === 'その他') {
       rareCustomDiv.style.display = 'block';
-      rareCustomInput.required = true; // 「その他」選択時は入力必須にする場合
+      rareCustomInput.required = true;
     } else {
       rareCustomDiv.style.display = 'none';
       rareCustomInput.required = false;
-      rareCustomInput.value = ''; // 他の選択肢を選んだらカスタム入力欄をクリア
+      rareCustomInput.value = '';
     }
   }
 
   rareSelect.addEventListener('change', toggleCustomRareField);
   
-  // 初期表示時にも実行（フォーム送信失敗で戻ってきた場合など）
   document.addEventListener('DOMContentLoaded', function() {
     toggleCustomRareField();
   });

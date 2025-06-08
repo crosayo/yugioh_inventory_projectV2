@@ -1,0 +1,85 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2 class="text-center mb-4">データ診断：カテゴリ不一致＆データ欠損チェック</h2>
+
+    <div class="alert alert-info" role="alert">
+        <h4 class="alert-heading">診断結果と次の作業</h4>
+        <p>
+            データベース内のデータ問題を検出し、その修正作業を支援します。
+        </p>
+        <ul>
+            <li>以下のリストは、製品マスタ（`products`テーブル）に情報が存在しないか、または発売日が設定されていないカテゴリです。</li>
+            <li>**最下部の「SQL INSERTスクリプト・テンプレート」** を使って、不足している製品情報を一括でデータベースに登録してください。</li>
+        </ul>
+    </div>
+
+    {% if unmatched_categories %}
+        <div class="card mb-4">
+            <div class="card-header bg-danger text-white fw-bold">
+                【要対応】カテゴリ不一致 ({{ unmatched_categories|length }}件)
+            </div>
+            <div class="card-body">
+                <p class="card-text"><small>以下のカテゴリ名は、製品マスタに見つかりませんでした。下のSQLテンプレートを使って登録が必要です。</small></p>
+                 <ul class="list-group list-group-flush" style="max-height: 400px; overflow-y: auto;">
+                    {% for category in unmatched_categories %}
+                        <li class="list-group-item">{{ category }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+    {% endif %}
+
+    {% if matched_but_null_date %}
+        <div class="card mb-4">
+            <div class="card-header bg-warning text-dark fw-bold">
+                【要確認】発売日データ欠損 ({{ matched_but_null_date|length }}件)
+            </div>
+            <div class="card-body">
+                <p class="card-text"><small>以下のカテゴリ名は製品マスタに存在しましたが、発売日が設定されていません。データベースを直接修正してください。</small></p>
+                <ul class="list-group list-group-flush" style="max-height: 400px; overflow-y: auto;">
+                    {% for category in matched_but_null_date %}
+                        <li class="list-group-item">{{ category }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+    {% endif %}
+    
+    {% if not unmatched_categories and not matched_but_null_date %}
+        <div class="alert alert-success text-center mt-4" role="alert">
+            <strong>素晴らしい！</strong><br>
+            データの問題は見つかりませんでした。メインページでソート機能が動作するはずです。
+        </div>
+    {% endif %}
+
+    {% if unmatched_categories %}
+    <div class="card mt-4">
+        <div class="card-header bg-success text-white fw-bold">
+            【作業用】SQL INSERTスクリプト・テンプレート
+        </div>
+        <div class="card-body">
+            <p class="card-text">
+                以下のSQLスクリプトをコピーし、テキストエディタに貼り付けてください。<br>
+                各行の <strong>'YYYY-MM-DD'</strong> 部分を正しい発売日に、<strong>&lt;era&gt;</strong> を正しい期番号に書き換えてから、psql等で実行してください。<br>
+                これにより、不足している製品情報が一括でデータベースに登録されます。
+            </p>
+            <textarea class="form-control" rows="15" readonly>
+-- 不足している製品情報を登録するためのSQLテンプレート
+INSERT INTO products (name, display_name, release_date, era, show_in_sidebar) VALUES
+{% for category in unmatched_categories %}
+  ('{{ category.replace("'", "''") }}', '{{ category.replace("'", "''") }}', 'YYYY-MM-DD', <era>, FALSE){% if not loop.last %},{% endif %}
+{% endfor %}
+ON CONFLICT (name) DO NOTHING;
+            </textarea>
+        </div>
+    </div>
+    {% endif %}
+
+
+    <div class="text-center mt-4">
+        <a href="{{ url_for('main.index') }}" class="btn btn-secondary">メインページに戻る</a>
+    </div>
+</div>
+{% endblock %}
