@@ -4,7 +4,7 @@
 <style>
   /* Styles specific to index.html, if any */
   .table-hover tbody tr:hover {
-    background-color: #f1f1f1; /* Lighter hover for better readability */
+    background-color: #f1f1f1;
   }
   .stock-buttons .btn {
     padding: 0.2rem 0.4rem;
@@ -41,6 +41,7 @@
     <label class="form-label">ソート:</label>
     <div class="input-group input-group-sm">
       <select name="sort_key" class="form-select">
+        <option value="release_date" {% if sort_key == 'release_date' %}selected{% endif %}>発売日（期）</option>
         <option value="name" {% if sort_key == 'name' %}selected{% endif %}>名前</option>
         <option value="card_id" {% if sort_key == 'card_id' %}selected{% endif %}>カードID</option>
         <option value="rare" {% if sort_key == 'rare' %}selected{% endif %}>レア</option>
@@ -49,8 +50,8 @@
         <option value="category" {% if sort_key == 'category' %}selected{% endif %}>カテゴリ</option>
       </select>
       <select name="sort_order" class="form-select">
-        <option value="asc" {% if sort_order == 'asc' %}selected{% endif %}>昇順</option>
-        <option value="desc" {% if sort_order == 'desc' %}selected{% endif %}>降順</option>
+        <option value="desc" {% if sort_order == 'desc' %}selected{% endif %}>降順（新しい順）</option>
+        <option value="asc" {% if sort_order == 'asc' %}selected{% endif %}>昇順（古い順）</option>
       </select>
     </div>
   </div>
@@ -97,7 +98,7 @@
     </thead>
     <tbody>
       {% for item in items %}
-      <tr {% if item.stock == 0 and not show_zero %}class="d-none"{% elif item.stock == 0 %}class="table-secondary"{% endif %}>
+      <tr {% if item.stock == 0 and not show_zero %}class="d-none"{% elif item.stock == 0 %}class="table-secondary"{% endif %} id="item-{{ item.id }}">
         <td>{{ item.name }}</td>
         <td>{{ item.card_id or '-' }}</td>
         <td>{{ item.rare }}</td>
@@ -170,7 +171,7 @@
 {% endif %}
 
 {% else %}
-  {% if not keyword %} {# Only show if not a failed search result #}
+  {% if not keyword %}
   <div class="alert alert-info text-center" role="alert">
     登録されているカードはありません。
     {% if g.user %}
@@ -198,7 +199,7 @@
 
 {% block scripts %}
 <script>
-  // トップへ戻るボタン (元edit.htmlにあったもの)
+  // トップへ戻るボタン
   var topButton = document.getElementById("topBtn");
   window.onscroll = function() {
     if (document.body.scrollTop > 300 || document.documentElement.scrollTop > 300) {
@@ -211,13 +212,11 @@
     window.scrollTo({top: 0, behavior: 'smooth'});
   }
 
-  // 表示件数や在庫表示チェックボックスの変更時にフォームを自動送信
-  // document.getElementById('per_page').addEventListener('change', function() {
-  //   this.form.submit();
-  // });
-  // document.getElementById('show_zero').addEventListener('change', function() {
-  //   this.form.submit();
-  // });
-  // HTMLのonchange属性で対応済みなので上記は不要
+  // フォームの自動送信
+  document.querySelectorAll('.filter-form .form-select').forEach(function(select) {
+      select.addEventListener('change', function() {
+          this.form.submit();
+      });
+  });
 </script>
 {% endblock %}

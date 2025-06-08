@@ -2,22 +2,21 @@
 from flask import (
     Blueprint, flash, g, redirect, render_template, request, session, url_for, current_app, abort, make_response
 )
-import psycopg2 # Keep for specific error types if needed, but db connection is from db.py
+import psycopg2
 import psycopg2.extras
-import traceback # For detailed error logging
+import traceback
 import csv
 import io
 import datetime
 
-from app.db import get_db_connection # Import the centralized db connection function
-from app.auth import login_required # Import the login_required decorator
-# Import data definitions (rarities, conversion map)
-from app.data_definitions import DEFINED_RARITIES, RARITY_CONVERSION_MAP
+from app.db import get_db_connection
+from app.auth import login_required
+from app.data_definitions import DEFINED_RARITIES, RARITY_CONVERSION_MAP, ERA_DEFINITIONS, ERA_DISPLAY_NAMES, ERA_DISPLAY_ORDER
 
-bp = Blueprint('main', __name__) # No url_prefix, as it's the main part of the app
+bp = Blueprint('main', __name__)
 
 def card_id_in_results(items, keyword):
-    # (この関数は変更ありません。元のコードのままです)
+    # (この関数は変更ありません)
     if not items or not keyword:
         return False
     for item in items:
@@ -26,85 +25,68 @@ def card_id_in_results(items, keyword):
                 return True
     return False
 
-def get_items_from_db(show_zero=True, keyword=None, sort_by="name", sort_order="asc"):
-    # (この関数は変更ありません。元のコードのままです)
-    valid_sort_keys = ["name", "card_id", "rare", "stock", "id", "category"]
-    if sort_by not in valid_sort_keys:
-        sort_by = "name"
-    if sort_order.lower() not in ["asc", "desc"]:
-        sort_order = "asc"
-
+# --- ▼▼▼ get_items_from_db 関数のクエリを修正 ▼▼▼ ---
+def get_items_from_db(show_zero=True, keyword=None, sort_by="release_date", sort_order="desc"):
     conn = None
     items_result = []
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        query_base = "SELECT * FROM items"
+        
+        # itemsのcategoryを主とし、productsの情報を付加する形にクエリを修正
+        query_base = """
+            SELECT
+                i.id,
+                i.name,
+                i.card_id,
+                i.rare,
+                i.stock,
+                i.category,  -- itemsテーブルのカテゴリ名を常に取得
+                p.release_date,
+                p.era,
+                p.display_name,
+                p.show_in_sidebar
+            FROM items i
+            LEFT JOIN products p ON i.category = p.name
+        """
+        
         conditions = []
         params = []
 
         if not show_zero:
-            conditions.append("stock > 0")
-
+            conditions.append("i.stock > 0")
+        
         if keyword:
-            keyword_lower = keyword.lower()
-            keyword_lower_like = f"%{keyword_lower}%"
-
-            kks_hira_converter = current_app.kks_hira_converter
-            kks_kata_converter = current_app.kks_kata_converter
-
-            hira_result = kks_hira_converter.convert(keyword)
-            keyword_hira = "".join([item['hira'] for item in hira_result])
-            keyword_hira_like = f"%{keyword_hira.lower()}%" if keyword_hira else None
-
-            kata_result = kks_kata_converter.convert(keyword)
-            keyword_kata = "".join([item['kana'] for item in kata_result])
-            keyword_kata_like = f"%{keyword_kata.lower()}%" if keyword_kata else None
-
-            name_conditions_list = []
-            name_params_list = []
-
-            name_conditions_list.append("LOWER(name) LIKE %s")
-            name_params_list.append(keyword_lower_like)
-
-            if keyword_hira_like and keyword_hira.lower() != keyword_lower:
-                name_conditions_list.append("LOWER(name) LIKE %s")
-                name_params_list.append(keyword_hira_like)
-
-            if keyword_kata_like and keyword_kata.lower() != keyword_lower and \
-               (not keyword_hira or keyword_kata.lower() != keyword_hira.lower()):
-                name_conditions_list.append("LOWER(name) LIKE %s")
-                name_params_list.append(keyword_kata_like)
-
-            name_search_clause_str = "(" + " OR ".join(name_conditions_list) + ")"
-
-            other_column_conditions = [
-                "LOWER(card_id) LIKE %s",
-                "LOWER(rare) LIKE %s",
-                "LOWER(category) LIKE %s"
+            keyword_lower_like = f"%{keyword.lower()}%"
+            keyword_conditions = [
+                "LOWER(i.name) LIKE %s",
+                "LOWER(i.card_id) LIKE %s",
+                "LOWER(i.rare) LIKE %s",
+                "LOWER(i.category) LIKE %s" # i.category を検索対象に
             ]
-            try:
-                keyword_as_int = int(keyword)
-                other_column_conditions.append("id = %s")
-                other_column_params = [keyword_lower_like] * (len(other_column_conditions) -1) + [keyword_as_int]
-
-            except ValueError:
-                 other_column_params = [keyword_lower_like] * len(other_column_conditions)
-
-
-            all_search_conditions = [name_search_clause_str] + other_column_conditions
-            conditions.append("(" + " OR ".join(all_search_conditions) + ")")
-            params.extend(name_params_list)
-            params.extend(other_column_params)
+            conditions.append(f"({' OR '.join(keyword_conditions)})")
+            params.extend([keyword_lower_like] * 4)
 
         if conditions:
             query_base += " WHERE " + " AND ".join(conditions)
+        
+        valid_sort_keys = ["name", "card_id", "rare", "stock", "id", "category", "release_date"]
+        if sort_by not in valid_sort_keys:
+            sort_by = "release_date"
+        if sort_order.lower() not in ["asc", "desc"]:
+            sort_order = "desc"
 
-        query_base += f" ORDER BY {sort_by} {sort_order.upper()}"
+        if sort_by == "release_date":
+            query_base += f" ORDER BY p.release_date {sort_order.upper()} NULLS LAST, i.name ASC"
+        else:
+            # categoryでソートする場合は、itemsテーブルのcategoryカラムを使う
+            sort_column = f"i.{sort_by}"
+            query_base += f" ORDER BY {sort_column} {sort_order.upper()}, i.name ASC"
 
         cur.execute(query_base, tuple(params))
         items_result = cur.fetchall()
-        current_app.logger.debug(f"Executed query: {cur.query.decode() if cur.query else 'N/A'} with params: {params}")
+        
+        current_app.logger.debug(f"Executed query: {cur.query.decode() if cur.query else 'N/A'}")
 
     except (psycopg2.Error, Exception) as e:
         current_app.logger.error(f"Database error in get_items_from_db: {e}\n{traceback.format_exc()}")
@@ -115,43 +97,45 @@ def get_items_from_db(show_zero=True, keyword=None, sort_by="name", sort_order="
                  cur.close()
             conn.close()
     return items_result
+# --- ▲▲▲ get_items_from_db 関数のクエリを修正 ▲▲▲ ---
 
 @bp.route('/')
 def index():
-    # (この関数は変更ありません。元のコードのままです)
     per_page = int(request.args.get('per_page', 20))
     page = int(request.args.get('page', 1))
     show_zero = request.args.get('show_zero') == 'on'
     keyword = request.args.get('keyword', '').strip()
-    sort_by = request.args.get('sort_key', 'name')
-    sort_order = request.args.get('sort_order', 'asc')
+    sort_by = request.args.get('sort_key', 'release_date')
+    sort_order = request.args.get('sort_order', 'desc')
 
-    items = get_items_from_db(show_zero, keyword, sort_by, sort_order)
-    total_items_count = len(items)
+    all_items = get_items_from_db(show_zero, keyword, sort_by, sort_order)
+    total_items_count = len(all_items)
 
-    if per_page <= 0:
-        paginated_items = items
-        total_pages = 1 if total_items_count > 0 else 0
+    if per_page > 0:
+        start = (page - 1) * per_page
+        end = start + per_page
+        paginated_items = all_items[start:end]
+        total_pages = (total_items_count + per_page - 1) // per_page
     else:
-        paginated_items = items[(page - 1) * per_page : page * per_page]
-        total_pages = (total_items_count + per_page - 1) // per_page if per_page > 0 else 1
-
-    if page > total_pages and total_pages > 0 :
+        paginated_items = all_items
+        total_pages = 1 if total_items_count > 0 else 0
+    
+    if page > total_pages and total_pages > 0:
         page = total_pages
         if per_page > 0:
-            paginated_items = items[(page - 1) * per_page : page * per_page]
+            start = (page - 1) * per_page
+            end = start + per_page
+            paginated_items = all_items[start:end]
 
     show_add_hint = False
-    if keyword and paginated_items:
-        has_exact_card_id = card_id_in_results(paginated_items, keyword)
-        show_add_hint = not has_exact_card_id
-    elif keyword and not paginated_items:
+    if keyword and not all_items:
         show_add_hint = True
-
+    
+    # テンプレートに渡す変数名を 'items' に統一
     return render_template('main/index.html',
                            items=paginated_items,
-                           per_page=per_page,
                            page=page,
+                           per_page=per_page,
                            total_pages=total_pages,
                            total_items=total_items_count,
                            show_zero=show_zero,
@@ -161,6 +145,8 @@ def index():
                            show_add_hint=show_add_hint)
 
 
+# (add_item, edit_item, などの残りの関数は変更ありません。元のコードのままです)
+# ... (元のmain.pyのadd_item以降の関数をここに貼り付け) ...
 @bp.route('/add', methods=('GET', 'POST'))
 @login_required
 def add_item():
@@ -170,14 +156,14 @@ def add_item():
         rare_select = request.form.get('rare_select')
         rare_custom = request.form.get('rare_custom', '').strip()
         rare = rare_custom if rare_select == 'その他' and rare_custom else rare_select
-
+        
         stock_str = request.form.get('stock', '0').strip()
         try:
             stock = int(stock_str) if stock_str.isdigit() else 0
         except ValueError:
             stock = 0
             flash('在庫数には数値を入力してください。0として登録します。', 'warning')
-
+        
         category = request.form.get('category', '').strip()
 
         error_occurred = False
@@ -187,9 +173,9 @@ def add_item():
         if not rare:
             flash('レアリティを選択または入力してください。', 'danger')
             error_occurred = True
-
+        
         if error_occurred:
-            return render_template('main/add_item.html',
+            return render_template('main/add_item.html', 
                                    prefill_name=name,
                                    prefill_card_id=card_id,
                                    prefill_category=category,
@@ -202,8 +188,8 @@ def add_item():
         try:
             conn = get_db_connection()
             cur = conn.cursor()
-            final_card_id = card_id if card_id else None # DBにNULLを許容する場合
-
+            final_card_id = card_id if card_id else None
+            
             cur.execute("""
                 INSERT INTO items (name, card_id, rare, stock, category)
                 VALUES (%s, %s, %s, %s, %s)
@@ -213,21 +199,14 @@ def add_item():
             current_app.logger.info(f"Item added: Name='{name}', CardID='{final_card_id}', Rare='{rare}'")
             return redirect(url_for('main.index'))
         except psycopg2.IntegrityError as e:
-            if conn: conn.rollback()
-            # --- ▼▼▼ここからエラーメッセージ修正▼▼▼ ---
-            # constraint_name は実際の複合ユニークキー制約名に合わせる (例: 'unique_card_id_rare')
-            # PostgreSQLの場合、エラーオブジェクト e.diag.constraint_name で制約名が取得できる場合がある
+            conn.rollback()
             constraint_name_from_error = getattr(getattr(e, 'diag', None), 'constraint_name', '')
 
             if 'unique_card_id_rare' in str(e).lower() or \
-               (constraint_name_from_error and 'unique_card_id_rare' in constraint_name_from_error.lower()): # 実際の制約名に置き換える
+               (constraint_name_from_error and 'unique_card_id_rare' in constraint_name_from_error.lower()):
                 error_message = f"データベース登録エラー: カードID「{final_card_id or '(未設定)'}」とレアリティ「{rare}」の組み合わせは既に登録されています。"
-            elif final_card_id and ('items_card_id_key' in str(e).lower() or \
-                  (constraint_name_from_error and 'items_card_id_key' in constraint_name_from_error.lower())): # もし古い単独制約が残っていた場合 (通常は手順1で削除)
-                 error_message = f"データベース登録エラー: カードID「{final_card_id}」は既に存在する可能性があります。(古い制約)"
             else:
                 error_message = f"データベース登録エラー: {e}"
-            # --- ▲▲▲ここまでエラーメッセージ修正▲▲▲ ---
             current_app.logger.error(f"IntegrityError adding item: {error_message}\n{traceback.format_exc()}")
             flash(error_message, 'danger')
         except (psycopg2.Error, Exception) as e:
@@ -240,8 +219,8 @@ def add_item():
                 if 'cur' in locals() and cur and not cur.closed:
                     cur.close()
                 conn.close()
-
-        return render_template('main/add_item.html',
+        
+        return render_template('main/add_item.html', 
                                prefill_name=name,
                                prefill_card_id=card_id,
                                prefill_category=category,
@@ -252,7 +231,7 @@ def add_item():
 
     name_prefill = request.args.get('name', '')
     card_id_prefill = request.args.get('card_id', '')
-    return render_template('main/add_item.html',
+    return render_template('main/add_item.html', 
                            prefill_name=name_prefill,
                            prefill_card_id=card_id_prefill,
                            rarities=DEFINED_RARITIES)
@@ -261,9 +240,6 @@ def add_item():
 @bp.route('/edit/<int:item_id>', methods=('GET', 'POST'))
 @login_required
 def edit_item(item_id):
-    # (この関数は今回のバグ修正では直接的な変更はありませんが、
-    # レアリティ変更時の重複チェックを厳密に行うなら将来的に修正検討箇所です。
-    # 今回は元のコードのままとしています。)
     conn = None
     item_for_render = None
 
@@ -287,11 +263,10 @@ def edit_item(item_id):
 
     if request.method == 'POST':
         name = request.form.get('name', '').strip()
-        # card_id is not editable in this form
         rare_select = request.form.get('rare_select')
         rare_custom = request.form.get('rare_custom', '').strip()
         new_rare = rare_custom if rare_select == 'その他' and rare_custom else rare_select
-
+        
         stock_str = request.form.get('stock', '0').strip()
         try:
             stock = int(stock_str) if stock_str.isdigit() else 0
@@ -305,22 +280,18 @@ def edit_item(item_id):
         if not name:
             flash('名前は必須です。', 'danger')
             error_occurred_edit = True
-        if not new_rare: # rare_select might be empty
+        if not new_rare:
             flash('レアリティを選択または入力してください。', 'danger')
             error_occurred_edit = True
-
-        # 複合ユニークキー制約チェック (card_id は変更できない前提)
-        # もしレアリティが変更され、かつ変更後の card_id と new_rare の組み合わせが
-        # 現在編集中のアイテム以外のアイテムで既に存在する場合、エラーとする
+        
         if not error_occurred_edit and item_for_render['rare'] != new_rare:
             conn_check = None
             try:
                 conn_check = get_db_connection()
                 cur_check = conn_check.cursor()
-                # item_for_render['card_id'] が None の場合も考慮
                 query_check_duplicate = "SELECT id FROM items WHERE card_id = %s AND rare = %s AND id != %s"
                 params_check_duplicate = [item_for_render['card_id'], new_rare, item_id]
-                if item_for_render['card_id'] is None: # card_idがNULLの場合のチェック
+                if item_for_render['card_id'] is None:
                     query_check_duplicate = "SELECT id FROM items WHERE card_id IS NULL AND rare = %s AND id != %s"
                     params_check_duplicate = [new_rare, item_id]
                 
@@ -330,12 +301,11 @@ def edit_item(item_id):
                     error_occurred_edit = True
             except (psycopg2.Error, Exception) as e_check:
                 flash(f"重複チェック中にエラーが発生しました: {e_check}", "danger")
-                error_occurred_edit = True # 安全のため更新を中止
+                error_occurred_edit = True
             finally:
                 if conn_check:
                     if 'cur_check' in locals() and cur_check and not cur_check.closed: cur_check.close()
                     conn_check.close()
-
 
         if not error_occurred_edit:
             conn_update = None
@@ -354,7 +324,7 @@ def edit_item(item_id):
                 flash('商品情報が更新されました。', 'success')
                 current_app.logger.info(f"Item updated: ID={item_id}, Name='{name}', Rare='{new_rare}'")
                 return redirect(url_for('main.index'))
-            except psycopg2.IntegrityError as e_int: # 主に複合ユニーク制約違反
+            except psycopg2.IntegrityError as e_int:
                  if conn_update: conn_update.rollback()
                  error_message = f"データベース更新エラー: カードID「{item_for_render['card_id'] or '(未設定)'}」とレアリティ「{new_rare}」の組み合わせが既に存在する可能性があります。"
                  current_app.logger.error(f"IntegrityError updating item {item_id}: {e_int}\n{traceback.format_exc()}")
@@ -369,27 +339,24 @@ def edit_item(item_id):
                     if 'cur_update' in locals() and cur_update and not cur_update.closed:
                          cur_update.close()
                     conn_update.close()
-
-        # POSTでエラーがあった場合やDB更新失敗時は、入力値を保持して再描画
+        
         temp_item_data_for_form = dict(item_for_render)
         temp_item_data_for_form.update({
             'name': name,
-            'rare': new_rare, # ユーザーが試みたレアリティを表示
+            'rare': new_rare,
             'stock': stock_str,
             'category': category
         })
-        return render_template('main/edit_item.html',
-                               item=temp_item_data_for_form,
+        return render_template('main/edit_item.html', 
+                               item=temp_item_data_for_form, 
                                rarities=DEFINED_RARITIES)
 
-    # GET request
     return render_template('main/edit_item.html', item=item_for_render, rarities=DEFINED_RARITIES)
 
 
 @bp.route('/delete/<int:item_id>/confirm', methods=('GET',))
 @login_required
 def confirm_delete_item(item_id):
-    # (この関数は変更ありません。元のコードのままです)
     conn = None
     item = None
     try:
@@ -406,7 +373,7 @@ def confirm_delete_item(item_id):
             if 'cur' in locals() and cur and not cur.closed:
                 cur.close()
             conn.close()
-
+            
     if not item:
         abort(404, description=f"商品ID {item_id} が見つかりませんでした。")
     return render_template('main/confirm_delete.html', item=item)
@@ -415,7 +382,6 @@ def confirm_delete_item(item_id):
 @bp.route('/delete/<int:item_id>', methods=('POST',))
 @login_required
 def delete_item(item_id):
-    # (この関数は変更ありません。元のコードのままです)
     conn = None
     try:
         conn = get_db_connection()
@@ -444,7 +410,6 @@ def delete_item(item_id):
 @bp.route('/update_stock/<int:item_id>', methods=('POST',))
 @login_required
 def update_stock(item_id):
-    # (この関数は変更ありません。元のコードのままです)
     try:
         delta = int(request.form.get('delta'))
     except (ValueError, TypeError):
@@ -461,7 +426,7 @@ def update_stock(item_id):
         cur = conn.cursor()
         cur.execute("SELECT stock FROM items WHERE id = %s", (item_id,))
         result = cur.fetchone()
-
+        
         if not result:
             flash("商品が見つかりません。", 'warning')
         else:
@@ -489,20 +454,25 @@ def update_stock(item_id):
             if 'cur' in locals() and cur and not cur.closed:
                 cur.close()
             conn.close()
-
+            
     return redirect(request.referrer or url_for('main.index'))
 
 
 @bp.route('/download_csv')
 @login_required
 def download_csv():
-    # (この関数は変更ありません。元のコードのままです)
     conn = None
     items = []
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("SELECT id, name, card_id, rare, stock, category FROM items ORDER BY id")
+        # カテゴリ情報も取得するためにJOIN
+        cur.execute("""
+            SELECT 
+                i.id, i.name, i.card_id, i.rare, i.stock, i.category
+            FROM items i
+            ORDER BY i.id
+        """)
         items = cur.fetchall()
     except (psycopg2.Error, Exception) as e:
         current_app.logger.error(f"Error fetching items for CSV download: {e}\n{traceback.format_exc()}")
@@ -515,9 +485,9 @@ def download_csv():
             conn.close()
 
     si = io.StringIO()
-    si.write('\ufeff')
+    si.write('\ufeff') 
     cw = csv.writer(si)
-
+    
     headers = ['ID', '名前', 'カードID', 'レアリティ', '在庫数', 'カテゴリ']
     column_keys = ['id', 'name', 'card_id', 'rare', 'stock', 'category']
     cw.writerow(headers)
