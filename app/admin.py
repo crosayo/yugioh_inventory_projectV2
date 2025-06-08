@@ -1,6 +1,6 @@
 # app/admin.py
 from flask import (
-    Blueprint, flash, redirect, render_template, request, url_for, current_app, session
+    Blueprint, flash, redirect, render_template, request, url_for, current_app, session, jsonify
 )
 import psycopg2
 import psycopg2.extras
@@ -247,7 +247,7 @@ def admin_import_csv():
                                 continue
 
                             try:
-                                file_content_for_count = file_obj.read() 
+                                file_content_for_count = file_obj.read()
                                 file_obj.seek(0)
                                 
                                 temp_file_like_object_for_count = io.StringIO(file_content_for_count.decode('utf-8-sig'))
@@ -558,7 +558,6 @@ def manage_products():
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # `show_in_sidebar`列も取得するように変更
         query = "SELECT name, display_name, release_date, era, show_in_sidebar FROM products"
         params = []
         
@@ -600,7 +599,6 @@ def add_product():
         name = request.form.get('name', '').strip()
         display_name = request.form.get('display_name', '').strip()
         release_date_str = request.form.get('release_date', '').strip()
-        # チェックボックスの値を取得
         show_in_sidebar = request.form.get('show_in_sidebar') == 'on'
 
         if not name or not release_date_str:
@@ -615,7 +613,6 @@ def add_product():
         try:
             conn = get_db_connection()
             cur = conn.cursor()
-            # INSERT文にshow_in_sidebarを追加
             cur.execute(
                 "INSERT INTO products (name, display_name, release_date, era, show_in_sidebar) VALUES (%s, %s, %s, %s, %s)",
                 (name, display_name or name, release_date_str, era, show_in_sidebar)
@@ -657,7 +654,6 @@ def edit_product(product_name):
         new_name = request.form.get('name', '').strip()
         new_display_name = request.form.get('display_name', '').strip()
         new_release_date_str = request.form.get('release_date', '').strip()
-        # チェックボックスの値を取得
         new_show_in_sidebar = request.form.get('show_in_sidebar') == 'on'
 
 
@@ -672,7 +668,6 @@ def edit_product(product_name):
         try:
             conn = get_db_connection()
             cur = conn.cursor()
-            # UPDATE文にshow_in_sidebarを追加
             cur.execute(
                 "UPDATE products SET name=%s, display_name=%s, release_date=%s, era=%s, show_in_sidebar=%s WHERE name=%s",
                 (new_name, new_display_name or new_name, new_release_date_str, new_era, new_show_in_sidebar, original_name)
@@ -691,12 +686,10 @@ def edit_product(product_name):
                 cur.close()
                 conn.close()
 
-    # GETリクエストの処理
     product = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        # show_in_sidebarも取得
         cur.execute("SELECT name, display_name, release_date, era, show_in_sidebar FROM products WHERE name = %s", (original_name,))
         product = cur.fetchone()
     except (Exception, psycopg2.Error) as error:
@@ -715,33 +708,33 @@ def edit_product(product_name):
                            product=product,
                            page_title=f'製品の編集: {original_name}')
 
-# app/admin.py の末尾に追加
-
-@bp.route('/products/toggle_sidebar/<path:product_name>', methods=['POST'])
+@bp.route('/api/products/toggle_sidebar/<path:product_name>', methods=['POST'])
 @login_required
-def toggle_sidebar_visibility(product_name):
-    """製品のサイドバー表示/非表示を切り替える"""
+def api_toggle_sidebar(product_name):
+    """【API】製品のサイドバー表示/非表示を切り替える"""
     product_to_toggle = unquote(product_name)
     conn = None
     try:
         conn = get_db_connection()
-        cur = conn.cursor()
-        # SQLの NOT を使って、現在の値の反対の値を設定する
-        cur.execute(
-            "UPDATE products SET show_in_sidebar = NOT show_in_sidebar WHERE name = %s",
-            (product_to_toggle,)
-        )
-        conn.commit()
-        flash(f"製品「{product_to_toggle}」のサイドバー表示設定を切り替えました。", "info")
+        new_state = None
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE products SET show_in_sidebar = NOT show_in_sidebar WHERE name = %s RETURNING show_in_sidebar",
+                    (product_to_toggle,)
+                )
+                result = cur.fetchone()
+                if result:
+                    new_state = result['show_in_sidebar']
+                else:
+                    return jsonify({'success': False, 'message': '対象の製品が見つかりませんでした。'}), 404
+        
+        return jsonify({'success': True, 'newState': new_state})
+
     except Exception as e:
-        if conn:
-            conn.rollback()
-        flash(f"設定の切り替え中にエラーが発生しました: {e}", "danger")
-        current_app.logger.error(f"Error toggling sidebar visibility for {product_to_toggle}: {e}")
+        if conn: conn.rollback()
+        current_app.logger.error(f"Error toggling sidebar visibility via API for {product_to_toggle}: {e}")
+        return jsonify({'success': False, 'message': 'データベースエラーが発生しました。'}), 500
     finally:
         if conn:
-            cur.close()
             conn.close()
-    
-    # 操作前のページ（検索やソートの状態を維持した一覧）に戻る
-    return redirect(request.referrer or url_for('admin.manage_products'))

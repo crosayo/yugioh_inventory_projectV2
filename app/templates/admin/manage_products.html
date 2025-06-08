@@ -56,15 +56,13 @@
                     <td>{{ p.release_date.strftime('%Y-%m-%d') if p.release_date else '---' }}</td>
                     <td class="text-center">{{ p.era or '?' }}</td>
                     <td class="text-center">
-                        {# ===== ここから変更 ===== #}
-                        <form action="{{ url_for('admin.toggle_sidebar_visibility', product_name=p.name|urlencode) }}" method="POST" class="d-inline">
+                        <form action="#" method="POST" class="d-inline sidebar-toggle-form" data-api-url="{{ url_for('admin.api_toggle_sidebar', product_name=p.name|urlencode) }}">
                             {% if p.show_in_sidebar %}
                                 <button type="submit" class="btn btn-success btn-sm" title="クリックして非表示にする">表示中</button>
                             {% else %}
                                 <button type="submit" class="btn btn-secondary btn-sm" title="クリックして表示する">非表示</button>
                             {% endif %}
                         </form>
-                        {# ===== ここまで変更 ===== #}
                     </td>
                     <td>
                         <a href="{{ url_for('admin.edit_product', product_name=p.name|urlencode) }}" class="btn btn-outline-primary btn-sm">編集</a>
@@ -75,4 +73,60 @@
         </table>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.sidebar-toggle-form').forEach(form => {
+        form.addEventListener('submit', function(event) {
+            event.preventDefault(); // ページリロードをキャンセル
+
+            const currentForm = this;
+            const apiUrl = currentForm.dataset.apiUrl; // data-api-url属性からURLを取得
+            const button = currentForm.querySelector('button[type="submit"]');
+
+            button.disabled = true; // 連打防止
+
+            fetch(apiUrl, {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('サーバー応答エラー');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    // ボタンの見た目とテキストを更新
+                    if (data.newState === true) {
+                        button.classList.remove('btn-secondary');
+                        button.classList.add('btn-success');
+                        button.textContent = '表示中';
+                        button.title = 'クリックして非表示にする';
+                    } else {
+                        button.classList.remove('btn-success');
+                        button.classList.add('btn-secondary');
+                        button.textContent = '非表示';
+                        button.title = 'クリックして表示する';
+                    }
+                } else {
+                    alert('エラー: ' + (data.message || '不明なエラーです。'));
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('通信エラーが発生しました。');
+            })
+            .finally(() => {
+                button.disabled = false; // ボタンを再度有効化
+            });
+        });
+    });
+});
+</script>
 {% endblock %}
