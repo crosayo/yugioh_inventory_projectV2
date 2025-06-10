@@ -61,7 +61,7 @@
   
   <div class="col-12 col-lg-3 d-flex align-items-end justify-content-start justify-content-lg-center mt-3 mt-lg-0">
     <div class="form-check form-switch">
-      <input class="form-check-input" type="checkbox" name="show_zero" id="show_zero" {% if show_zero %}checked{% endif %} onchange="this.form.submit()">
+      <input class="form-check-input" type="checkbox" name="show_zero" id="show_zero" value="on" {% if show_zero %}checked{% endif %} onchange="this.form.submit()">
       <label class="form-check-label" for="show_zero">在庫数0も表示</label>
     </div>
   </div>
@@ -113,7 +113,6 @@
         <td>{{ item.category or '-' }}</td>
         <td>{{ item.release_date.strftime('%Y-%m-%d') if item.release_date else '---' }}</td>
         <td class="text-center">
-          {# ===== ここから変更：data-* 属性を追加 ===== #}
           <div class="d-flex align-items-center justify-content-center stock-buttons">
             {% if g.user %}
             <form method="post" action="{{ url_for('main.update_stock', item_id=item.id) }}" class="stock-update-form">
@@ -129,7 +128,6 @@
             </form>
             {% endif %}
           </div>
-          {# ===== ここまで変更 ===== #}
         </td>
         {% if g.user %}
         <td>
@@ -143,43 +141,50 @@
   </table>
 </div>
 
+{# ===== ここから変更：ページネーションのリンクを修正 ===== #}
 {% if total_pages > 1 %}
-  <nav aria-label="Page navigation">
-    <ul class="pagination justify-content-center flex-wrap">
-        <li class="page-item {% if page == 1 %}disabled{% endif %}">
-            <a class="page-link" href="{{ url_for('main.index', page=1, per_page=per_page, show_zero=show_zero, keyword=keyword, search_field=search_field, sort_key=sort_key, sort_order=sort_order, category=category_filter) }}">&laquo; 最初</a>
-        </li>
-        <li class="page-item {% if page == 1 %}disabled{% endif %}">
-            <a class="page-link" href="{{ url_for('main.index', page=page-1, per_page=per_page, show_zero=show_zero, keyword=keyword, search_field=search_field, sort_key=sort_key, sort_order=sort_order, category=category_filter) }}">前へ</a>
-        </li>
+<nav aria-label="Page navigation">
+  <ul class="pagination justify-content-center flex-wrap">
+    {# '最初へ' のリンク #}
+    <li class="page-item {% if page == 1 %}disabled{% endif %}">
+      <a class="page-link" href="{{ url_for('main.index', page=1, per_page=per_page, keyword=keyword, search_field=search_field, sort_key=sort_key, sort_order=sort_order, category=category_filter, show_zero='on' if show_zero else None) }}">&laquo; 最初</a>
+    </li>
+    {# '前へ' のリンク #}
+    <li class="page-item {% if page == 1 %}disabled{% endif %}">
+      <a class="page-link" href="{{ url_for('main.index', page=page-1, per_page=per_page, keyword=keyword, search_field=search_field, sort_key=sort_key, sort_order=sort_order, category=category_filter, show_zero='on' if show_zero else None) }}">前へ</a>
+    </li>
 
-        {% set page_window = 2 %}
-        {% set min_page_nav = [1, page - page_window] | max %}
-        {% set max_page_nav = [total_pages, page + page_window] | min %}
+    {# ページ番号のリンク #}
+    {% set page_window = 2 %}
+    {% set min_page = [1, page - page_window] | max %}
+    {% set max_page = [total_pages, page + page_window] | min %}
 
-        {% if min_page_nav > 1 %}
-            <li class="page-item disabled"><span class="page-link">…</span></li>
-        {% endif %}
+    {% if min_page > 1 %}
+      <li class="page-item disabled"><span class="page-link">…</span></li>
+    {% endif %}
 
-        {% for p_nav in range(min_page_nav, max_page_nav + 1) %}
-        <li class="page-item {% if p_nav == page %}active{% endif %}">
-            <a class="page-link" href="{{ url_for('main.index', page=p_nav, per_page=per_page, show_zero=show_zero, keyword=keyword, search_field=search_field, sort_key=sort_key, sort_order=sort_order, category=category_filter) }}">{{ p_nav }}</a>
-        </li>
-        {% endfor %}
+    {% for p_num in range(min_page, max_page + 1) %}
+    <li class="page-item {% if p_num == page %}active{% endif %}">
+      <a class="page-link" href="{{ url_for('main.index', page=p_num, per_page=per_page, keyword=keyword, search_field=search_field, sort_key=sort_key, sort_order=sort_order, category=category_filter, show_zero='on' if show_zero else None) }}">{{ p_num }}</a>
+    </li>
+    {% endfor %}
 
-        {% if max_page_nav < total_pages %}
-            <li class="page-item disabled"><span class="page-link">…</span></li>
-        {% endif %}
+    {% if max_page < total_pages %}
+      <li class="page-item disabled"><span class="page-link">…</span></li>
+    {% endif %}
 
-        <li class="page-item {% if page == total_pages %}disabled{% endif %}">
-            <a class="page-link" href="{{ url_for('main.index', page=page+1, per_page=per_page, show_zero=show_zero, keyword=keyword, search_field=search_field, sort_key=sort_key, sort_order=sort_order, category=category_filter) }}">次へ</a>
-        </li>
-        <li class="page-item {% if page == total_pages %}disabled{% endif %}">
-            <a class="page-link" href="{{ url_for('main.index', page=total_pages, per_page=per_page, show_zero=show_zero, keyword=keyword, search_field=search_field, sort_key=sort_key, sort_order=sort_order, category=category_filter) }}">最後 &raquo;</a>
-        </li>
-    </ul>
-  </nav>
+    {# '次へ' のリンク #}
+    <li class="page-item {% if page == total_pages %}disabled{% endif %}">
+      <a class="page-link" href="{{ url_for('main.index', page=page+1, per_page=per_page, keyword=keyword, search_field=search_field, sort_key=sort_key, sort_order=sort_order, category=category_filter, show_zero='on' if show_zero else None) }}">次へ</a>
+    </li>
+    {# '最後へ' のリンク #}
+    <li class="page-item {% if page == total_pages %}disabled{% endif %}">
+      <a class="page-link" href="{{ url_for('main.index', page=total_pages, per_page=per_page, keyword=keyword, search_field=search_field, sort_key=sort_key, sort_order=sort_order, category=category_filter, show_zero='on' if show_zero else None) }}">最後 &raquo;</a>
+    </li>
+  </ul>
+</nav>
 {% endif %}
+{# ===== ここまで変更 ===== #}
 
 {% elif not (keyword or category_filter) %}
   <div class="alert alert-info text-center" role="alert">
@@ -206,10 +211,9 @@
 <button onclick="scrollToTop()" id="topBtn" title="ページトップへ">↑</button>
 {% endblock %}
 
-{# ===== ここから変更：JavaScriptコードを追加 ===== #}
 {% block scripts %}
 <script>
-  // トップへ戻るボタン (既存のコード)
+  // トップへ戻るボタン
   var topButton = document.getElementById("topBtn");
   window.onscroll = function() {
     if (document.body.scrollTop > 300 || document.documentElement.scrollTop > 300) {
@@ -222,20 +226,17 @@
     window.scrollTo({top: 0, behavior: 'smooth'});
   }
 
-  // ===== ここから新しい在庫更新用JavaScript =====
+  // 在庫更新用JavaScript
   document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('.stock-update-form').forEach(form => {
       form.addEventListener('submit', function(event) {
-        // 通常のフォーム送信をキャンセル
         event.preventDefault();
 
         const currentForm = this;
-        // API用のURLに書き換える
         const url = currentForm.action.replace('/update_stock/', '/api/update_stock/');
         const formData = new FormData(currentForm);
         const submitButton = currentForm.querySelector('button[type="submit"]');
 
-        // 連打防止のためにボタンを一時的に無効化
         submitButton.disabled = true;
 
         fetch(url, {
@@ -247,14 +248,12 @@
         })
         .then(response => {
           if (!response.ok) {
-            // サーバがエラーを返した場合
             throw new Error('サーバーからの応答が不正です。');
           }
           return response.json();
         })
         .then(data => {
           if (data.success) {
-            // 成功した場合、画面の表示を更新
             const row = currentForm.closest('tr');
             const stockDisplay = row.querySelector('[data-stock-display]');
             const minusButton = row.querySelector('[data-stock-button="minus"]');
@@ -267,24 +266,20 @@
               minusButton.disabled = (data.new_stock === 0);
             }
 
-            // 在庫が0になったら行の背景色を変更する
             if (data.new_stock === 0) {
               row.classList.add('table-secondary');
             } else {
               row.classList.remove('table-secondary');
             }
           } else {
-            // サーバー側で処理が失敗した場合 (例: 商品が見つからない)
             alert('在庫の更新に失敗しました: ' + data.message);
           }
         })
         .catch(error => {
-          // ネットワークエラーなど
           console.error('Fetch error:', error);
           alert('通信エラーが発生しました。ページを再読み込みしてください。');
         })
         .finally(() => {
-          // 成功・失敗にかかわらず、ボタンを再度有効化
           submitButton.disabled = false;
         });
       });
