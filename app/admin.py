@@ -10,7 +10,7 @@ import io
 import os
 import re
 from werkzeug.utils import secure_filename
-import datetime #<-- 追加
+import datetime
 from app.db import get_db_connection
 from app.auth import login_required
 from app.data_definitions import DEFINED_RARITIES, RARITY_CONVERSION_MAP, calculate_era
@@ -600,12 +600,20 @@ def add_product():
         display_name = request.form.get('display_name', '').strip()
         release_date_str = request.form.get('release_date', '').strip()
         show_in_sidebar = request.form.get('show_in_sidebar') == 'on'
+        
+        # エラー時にフォームを再表示するためのデータを準備
+        product_for_form = {
+            'name': name, 
+            'display_name': display_name, 
+            'release_date': release_date_str, 
+            'show_in_sidebar': show_in_sidebar
+        }
 
         if not name or not release_date_str:
             flash('製品名と発売日は必須です。', 'danger')
             return render_template('admin/product_form.html', 
                                    action_url=url_for('admin.add_product'), 
-                                   product={'name': name, 'display_name': display_name, 'release_date': release_date_str, 'show_in_sidebar': show_in_sidebar},
+                                   product=product_for_form,
                                    page_title='製品の新規登録')
         
         era = calculate_era(release_date_str)
@@ -620,22 +628,34 @@ def add_product():
             conn.commit()
             flash(f'製品「{name}」を登録しました。', 'success')
             return redirect(url_for('admin.manage_products'))
+
         except psycopg2.IntegrityError:
-            conn.rollback()
+            if conn: conn.rollback()
             flash(f'エラー: 製品名「{name}」は既に存在します。', 'danger')
+            # エラー発生時にフォームを再表示
+            return render_template('admin/product_form.html',
+                                   action_url=url_for('admin.add_product'),
+                                   product=product_for_form,
+                                   page_title='製品の新規登録')
         except (Exception, psycopg2.Error) as error:
-            conn.rollback()
+            if conn: conn.rollback()
             flash(f'データベース登録中にエラーが発生しました: {error}', 'danger')
+            # エラー発生時にフォームを再表示
+            return render_template('admin/product_form.html',
+                                   action_url=url_for('admin.add_product'),
+                                   product=product_for_form,
+                                   page_title='製品の新規登録')
         finally:
             if conn:
-                cur.close()
+                if 'cur' in locals() and cur and not cur.closed:
+                    cur.close()
                 conn.close()
-        
-        product = {'name': name, 'display_name': display_name, 'release_date': release_date_str, 'show_in_sidebar': show_in_sidebar}
-        return render_template('admin/product_form.html',
-                               action_url=url_for('admin.add_product'),
-                               product=product,
-                               page_title='製品の新規登録')
+
+    # GETリクエストの場合の処理
+    return render_template('admin/product_form.html', 
+                           action_url=url_for('admin.add_product'),
+                           product={},
+                           page_title='製品の新規登録')
 
 
 @bp.route('/products/edit/<path:product_name>', methods=['GET', 'POST'])
@@ -643,23 +663,29 @@ def add_product():
 def edit_product(product_name):
     """既存の製品を編集するページ"""
     original_name = unquote(product_name)
-    conn = None
-
+    
     if request.method == 'POST':
         new_name = request.form.get('name', '').strip()
         new_display_name = request.form.get('display_name', '').strip()
         new_release_date_str = request.form.get('release_date', '').strip()
         new_show_in_sidebar = request.form.get('show_in_sidebar') == 'on'
 
+        product_for_form = {
+            'name': new_name, 
+            'display_name': new_display_name, 
+            'release_date': new_release_date_str, 
+            'show_in_sidebar': new_show_in_sidebar
+        }
 
         if not new_name or not new_release_date_str:
             flash('製品名と発売日は必須です。', 'danger')
             return render_template('admin/product_form.html', 
-                                   action_url=url_for('admin.edit_product', product_name=product_name),
-                                   product={'name': new_name, 'display_name': new_display_name, 'release_date': new_release_date_str, 'show_in_sidebar': new_show_in_sidebar},
+                                   action_url=url_for('admin.edit_product', product_name=quote(original_name)),
+                                   product=product_for_form,
                                    page_title=f'製品の編集: {original_name}')
         
         new_era = calculate_era(new_release_date_str)
+        conn = None
         try:
             conn = get_db_connection()
             cur = conn.cursor()
@@ -671,16 +697,27 @@ def edit_product(product_name):
             flash(f'製品「{original_name}」の情報を更新しました。', 'success')
             return redirect(url_for('admin.manage_products'))
         except psycopg2.IntegrityError:
-            conn.rollback()
+            if conn: conn.rollback()
             flash(f'エラー: 更新後の製品名「{new_name}」は既に別の製品で使われています。', 'danger')
+            return render_template('admin/product_form.html',
+                                   action_url=url_for('admin.edit_product', product_name=quote(original_name)),
+                                   product=product_for_form,
+                                   page_title=f'製品の編集: {original_name}')
         except (Exception, psycopg2.Error) as error:
-            conn.rollback()
+            if conn: conn.rollback()
             flash(f'データベース更新中にエラーが発生しました: {error}', 'danger')
+            return render_template('admin/product_form.html',
+                                   action_url=url_for('admin.edit_product', product_name=quote(original_name)),
+                                   product=product_for_form,
+                                   page_title=f'製品の編集: {original_name}')
         finally:
             if conn:
-                cur.close()
+                if 'cur' in locals() and cur and not cur.closed:
+                    cur.close()
                 conn.close()
 
+    # GETリクエストの処理
+    conn = None
     product = None
     try:
         conn = get_db_connection()
@@ -691,7 +728,8 @@ def edit_product(product_name):
         flash(f'製品情報の取得中にエラーが発生しました: {error}', 'danger')
     finally:
         if conn:
-            cur.close()
+            if 'cur' in locals() and cur and not cur.closed:
+                cur.close()
             conn.close()
 
     if not product:
@@ -703,7 +741,6 @@ def edit_product(product_name):
                            product=product,
                            page_title=f'製品の編集: {original_name}')
 
-# ===== ここから新規追加 =====
 @bp.route('/products/export')
 @login_required
 def export_products():
@@ -719,21 +756,18 @@ def export_products():
         return redirect(url_for('admin.manage_products'))
     finally:
         if conn:
-            cur.close()
+            if 'cur' in locals() and cur and not cur.closed:
+                cur.close()
             conn.close()
 
-    # CSVファイルを作成
     si = io.StringIO()
-    si.write('\ufeff') # BOM for Excel
+    si.write('\ufeff') 
     cw = csv.writer(si)
     
-    # ヘッダー
     headers = ['name', 'display_name', 'release_date', 'era', 'show_in_sidebar']
     cw.writerow(headers)
 
-    # データ行
     for product in products:
-        # 日付オブジェクトを文字列に変換
         row = list(product)
         if isinstance(row[2], datetime.date):
             row[2] = row[2].strftime('%Y-%m-%d')
@@ -746,7 +780,6 @@ def export_products():
     output.headers["Content-type"] = "text/csv; charset=utf-8"
     
     return output
-# ===== ここまで新規追加 =====
 
 @bp.route('/api/products/toggle_sidebar/<path:product_name>', methods=['POST'])
 @login_required
@@ -777,60 +810,21 @@ def api_toggle_sidebar(product_name):
         return jsonify({'success': False, 'message': 'データベースエラーが発生しました。'}), 500
     finally:
         if conn:
-            conn.close()
-
-# 新しい製品削除のルートとロジックを追加
-@bp.route('/products/delete/<path:product_name>', methods=['POST'])
-@login_required
-def delete_product(product_name):
-    original_name = unquote(product_name)
-    conn = None
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-
-        # 関連するアイテムの数をチェック
-        cur.execute("SELECT COUNT(*) FROM items WHERE category = %s", (original_name,))
-        item_count = cur.fetchone()['count']
-
-        if item_count > 0:
-            flash(f'製品「{original_name}」に関連付けられているカードが{item_count}件あります。関連するカードがあるカテゴリは削除できません。先にカード情報を編集してください。', 'danger')
-            current_app.logger.warning(f"Attempt to delete product '{original_name}' failed: {item_count} associated items exist.")
-            return redirect(url_for('admin.manage_products'))
-        
-        # 製品を削除
-        cur.execute("DELETE FROM products WHERE name = %s", (original_name,))
-        conn.commit()
-        flash(f'製品「{original_name}」を削除しました。', 'info')
-        current_app.logger.info(f"Product deleted: '{original_name}'")
-
-    except (Exception, psycopg2.Error) as e:
-        if conn: conn.rollback()
-        error_message = f"製品「{original_name}」の削除中にデータベースエラーが発生しました: {e}"
-        current_app.logger.error(f"Error deleting product: {error_message}\n{traceback.format_exc()}")
-        flash(error_message, 'danger')
-    finally:
-        if conn:
             if 'cur' in locals() and cur and not cur.closed:
                 cur.close()
             conn.close()
-    return redirect(url_for('admin.manage_products'))
 
 def process_products_csv(file_stream):
     """
     製品マスタ(products)更新用のCSVファイルを処理する。
-    'name' 列をキーとして、'release_date' を更新し、'era' を再計算する。
-    オプションで 'display_name', 'show_in_sidebar' も更新する。
     """
     stats = {'updated': 0, 'not_found': 0, 'error': 0, 'total': 0}
     errors = []
     
     try:
-        # BOM付きUTF-8を考慮してデコード
         content = file_stream.read().decode('utf-8-sig')
         reader = csv.DictReader(io.StringIO(content))
         
-        # ヘッダーの正規化
         header_map = {
             'name': ['name', '製品名'],
             'release_date': ['release_date', '発売日'],
@@ -838,10 +832,8 @@ def process_products_csv(file_stream):
             'show_in_sidebar': ['show_in_sidebar', 'サイドバー表示']
         }
         
-        # CSVファイルのヘッダーを小文字に変換して、どのキーが使えるかマッピングする
         normalized_headers = {h.lower(): h for h in reader.fieldnames}
         
-        # どの列名を使うかを決定
         mapped_cols = {}
         for key, possible_names in header_map.items():
             for name in possible_names:
@@ -851,7 +843,7 @@ def process_products_csv(file_stream):
         
         if 'name' not in mapped_cols or 'release_date' not in mapped_cols:
             errors.append("CSVヘッダーに 'name' (製品名) と 'release_date' (発売日) が必要です。")
-            stats['error'] = 1 # ファイル全体のエラーとしてカウント
+            stats['error'] = 1
             return stats, errors
 
         conn = get_db_connection()
@@ -868,12 +860,10 @@ def process_products_csv(file_stream):
                     stats['error'] += 1
                     continue
                 
-                # 日付形式の検証
                 try:
                     datetime.datetime.strptime(release_date_str, '%Y-%m-%d')
                 except ValueError:
                     try:
-                        # YYYY/MM/DD形式も試す
                         release_date_obj = datetime.datetime.strptime(release_date_str, '%Y/%m/%d')
                         release_date_str = release_date_obj.strftime('%Y-%m-%d')
                     except ValueError:
@@ -883,7 +873,6 @@ def process_products_csv(file_stream):
 
                 new_era = calculate_era(release_date_str)
                 
-                # 更新する値の準備
                 updates = {
                     'release_date': release_date_str,
                     'era': new_era
@@ -899,7 +888,6 @@ def process_products_csv(file_stream):
                     elif show_val in ['false', '0', 'no', 'f', '']:
                         updates['show_in_sidebar'] = False
 
-                # SQLクエリの動的生成
                 set_clauses = [f"{key} = %s" for key in updates.keys()]
                 sql = f"UPDATE products SET {', '.join(set_clauses)} WHERE name = %s"
                 
@@ -956,12 +944,72 @@ def import_products_csv():
                 flash(f"{stats['error']}件の処理でエラーが発生しました。詳細はログを確認してください。", 'danger')
 
             if not any([stats['updated'], stats['not_found'], stats['error']]):
-                    flash('CSVファイルが空か、処理対象のデータがありませんでした。', 'info')
+                 flash('CSVファイルが空か、処理対象のデータがありませんでした。', 'info')
 
-            # 詳細なエラーメッセージをflashで表示
             for error_msg in errors:
                 flash(error_msg, 'danger')
 
             return redirect(url_for('admin.manage_products'))
 
     return render_template('admin/import_products.html')
+
+# ===== ここから新規追加 =====
+@bp.route('/products/delete/<path:product_name>/confirm')
+@login_required
+def confirm_delete_product(product_name):
+    """製品を削除する前の確認ページ"""
+    original_name = unquote(product_name)
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # 削除対象の製品情報を取得
+        cur.execute("SELECT * FROM products WHERE name = %s", (original_name,))
+        product = cur.fetchone()
+
+        if not product:
+            flash(f'製品「{original_name}」が見つかりません。', 'warning')
+            return redirect(url_for('admin.manage_products'))
+
+        # この製品に紐づくカードの件数を取得
+        cur.execute("SELECT COUNT(*) as item_count FROM items WHERE category = %s", (original_name,))
+        item_count = cur.fetchone()['item_count']
+
+    except (Exception, psycopg2.Error) as error:
+        flash(f'製品情報の取得中にエラーが発生しました: {error}', 'danger')
+        return redirect(url_for('admin.manage_products'))
+    finally:
+        if conn:
+            if 'cur' in locals() and cur and not cur.closed:
+                cur.close()
+            conn.close()
+            
+    return render_template('admin/confirm_delete_product.html', product=product, item_count=item_count)
+
+@bp.route('/products/delete/<path:product_name>', methods=['POST'])
+@login_required
+def delete_product(product_name):
+    """製品を実際に削除する"""
+    original_name = unquote(product_name)
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM products WHERE name = %s", (original_name,))
+        conn.commit()
+        
+        flash(f'製品「{original_name}」を削除しました。', 'success')
+        current_app.logger.info(f"Product '{original_name}' deleted by user '{session.get('username', 'unknown')}'.")
+
+    except (Exception, psycopg2.Error) as error:
+        if conn: conn.rollback()
+        flash(f'製品の削除中にエラーが発生しました: {error}', 'danger')
+        current_app.logger.error(f"Error deleting product '{original_name}': {error}\n{traceback.format_exc()}")
+    finally:
+        if conn:
+            if 'cur' in locals() and cur and not cur.closed:
+                cur.close()
+            conn.close()
+
+    return redirect(url_for('admin.manage_products'))

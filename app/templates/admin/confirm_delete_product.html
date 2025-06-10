@@ -1,0 +1,45 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container confirm-delete-container">
+  <div class="card mt-4 border-danger">
+    <div class="card-header bg-danger text-white">
+      <h3 class="text-center mb-0">製品の削除確認</h3>
+    </div>
+    <div class="card-body">
+      <p>以下の製品情報をデータベースから完全に削除します。この操作は元に戻せません。</p>
+      
+      {% if item_count > 0 %}
+      <div class="alert alert-warning" role="alert">
+        <strong><i class="bi bi-exclamation-triangle-fill"></i> 警告:</strong> この製品カテゴリには、現在 <strong>{{ item_count }}</strong> 件のカードが紐付いています。
+        <br>
+        このまま製品を削除すると、これらのカードはカテゴリ情報が失われ、発売日でのソートなどが正しく機能しなくなります。
+        事前にカードのカテゴリを別の製品に変更することを強く推奨します。
+      </div>
+      {% endif %}
+
+      <hr>
+      <dl class="row">
+        <dt class="col-sm-4">製品名 (カテゴリ名):</dt>
+        <dd class="col-sm-8"><strong>{{ product.name }}</strong></dd>
+
+        <dt class="col-sm-4">表示名:</dt>
+        <dd class="col-sm-8">{{ product.display_name }}</dd>
+
+        <dt class="col-sm-4">発売日:</dt>
+        <dd class="col-sm-8">{{ product.release_date.strftime('%Y-%m-%d') if product.release_date else '---' }}</dd>
+
+        <dt class="col-sm-4">期:</dt>
+        <dd class="col-sm-8">{{ product.era or '?' }}</dd>
+      </dl>
+      <hr>
+      <form method="post" action="{{ url_for('admin.delete_product', product_name=product.name|urlencode) }}">
+        <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+          <a href="{{ url_for('admin.edit_product', product_name=product.name|urlencode) }}" class="btn btn-outline-secondary">キャンセル</a>
+          <button type="submit" class="btn btn-danger">削除を実行する</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
