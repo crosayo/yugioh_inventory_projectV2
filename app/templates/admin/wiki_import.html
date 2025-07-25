@@ -1,0 +1,38 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2 class="text-center mb-4">管理機能：遊戯王Wikiからインポート</h2>
+
+    <div class="alert alert-info" role="alert">
+        <h4 class="alert-heading">機能概要</h4>
+        <p>遊戯王Wikiの個別商品ページ（例：PREMIUM PACK、ストラクチャーデッキなど）のURLを入力すると、そのページに収録されているカードリストを抽出し、データベースに登録することができます。</p>
+        <ol>
+            <li>下のフォームにURLを貼り付けて「カード情報を取得」ボタンを押してください。</li>
+            <li>次に表示される確認画面で、抽出されたカードリストの内容が正しいかを確認します。</li>
+            <li>問題がなければ、「DBに登録する」ボタンを押して、在庫管理ツールにデータを追加します。</li>
+        </ol>
+        <p class="mb-0"><strong>注意:</strong> ページの読み込みに時間がかかることがあります。ボタンを押した後は、画面が変わるまでしばらくお待ちください。</p>
+    </div>
+
+    <div class="card">
+        <div class="card-header fw-bold">
+            WikiページのURLを入力
+        </div>
+        <div class="card-body">
+            <form method="post" action="{{ url_for('admin.wiki_import') }}">
+                <div class="mb-3">
+                    <label for="wiki_url" class="form-label">遊戯王WikiのページURL:</label>
+                    <input type="url" class="form-control" id="wiki_url" name="wiki_url" required placeholder="https://yugioh-wiki.net/index.php?...">
+                </div>
+                <button type="submit" class="btn btn-primary">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-search me-2" viewBox="0 0 16 16">
+                        <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/>
+                    </svg>
+                    カード情報を取得
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -14,7 +14,17 @@ import datetime
 from app.db import get_db_connection
 from app.auth import login_required
 from app.data_definitions import DEFINED_RARITIES, RARITY_CONVERSION_MAP, calculate_era
+from app.utils import normalize_for_search
 from urllib.parse import unquote, quote
+
+# SeleniumとBeautifulSoupのインポート
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
+from bs4 import BeautifulSoup
+import time
 
 
 ALLOWED_EXTENSIONS = {'csv'}
@@ -194,6 +204,7 @@ def admin_batch_register():
                            items=items_for_batch, category_keyword=category_keyword, page=page,
                            per_page=per_page_batch, total_pages=total_pages_batch, total_items=total_items_batch)
 
+# ...(中略)...CSVインポートや製品マスタ管理など、他の既存関数は変更ありません...
 @bp.route('/import_csv', methods=('GET', 'POST'))
 @login_required
 def admin_import_csv():
@@ -953,7 +964,6 @@ def import_products_csv():
 
     return render_template('admin/import_products.html')
 
-# ===== ここから新規追加 =====
 @bp.route('/products/delete/<path:product_name>/confirm')
 @login_required
 def confirm_delete_product(product_name):
@@ -964,7 +974,6 @@ def confirm_delete_product(product_name):
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # 削除対象の製品情報を取得
         cur.execute("SELECT * FROM products WHERE name = %s", (original_name,))
         product = cur.fetchone()
 
@@ -972,7 +981,6 @@ def confirm_delete_product(product_name):
             flash(f'製品「{original_name}」が見つかりません。', 'warning')
             return redirect(url_for('admin.manage_products'))
 
-        # この製品に紐づくカードの件数を取得
         cur.execute("SELECT COUNT(*) as item_count FROM items WHERE category = %s", (original_name,))
         item_count = cur.fetchone()['item_count']
 
@@ -1013,3 +1021,217 @@ def delete_product(product_name):
             conn.close()
 
     return redirect(url_for('admin.manage_products'))
+
+
+# ===== Wikiインポート機能 ここから =====
+
+# admin.py内の既存のscrape_wiki_page関数を、以下の新しい関数で置き換える
+
+# admin.py内の既存のscrape_wiki_page関数を、以下の新しい関数で置き換える
+
+# admin.py内の既存のscrape_wiki_page関数を、以下の新しい関数で置き換える
+
+def scrape_wiki_page(url):
+    """
+    指定された遊戯王WikiのURLからカードリストを抽出する。
+    ページ内の全セクションを探索し、リスト形式とテーブル形式の両方に個別に対応する。
+    成功した場合は (カテゴリ名, カードリスト)、失敗した場合は (None, エラーメッセージ) を返す。
+    """
+    options = webdriver.ChromeOptions()
+    options.add_argument('--headless')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--blink-settings=imagesEnabled=false')
+    driver = None
+    
+    debug_screenshot_path = os.path.join(current_app.root_path, '..', 'debug_screenshot.png')
+    debug_html_path = os.path.join(current_app.root_path, '..', 'debug_page.html')
+
+    try:
+        current_app.logger.info("Selenium WebDriverを初期化しています...")
+        driver = webdriver.Chrome(options=options)
+        driver.set_page_load_timeout(90)
+        
+        current_app.logger.info(f"指定されたURLにアクセスします: {url}")
+        driver.get(url)
+        
+        WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.ID, "body")))
+        current_app.logger.info("ページの基本要素(#body)の読み込みを確認しました。")
+
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        
+        main_category_tag = soup.select_one('#body > h2')
+        main_category = main_category_tag.text.strip().replace(' †', '') if main_category_tag else driver.title.split('-')[0].strip()
+        current_app.logger.info(f"メインカテゴリ名を '{main_category}' として特定しました。")
+
+        # ページ内のすべてのカードリスト見出し (h3 or h4) を探す
+        all_card_list_headers = soup.select("#body h3, #body h4")
+        
+        final_card_list = []
+        found_any_list = False
+
+        for header in all_card_list_headers:
+            header_text = header.get_text(strip=True).replace(' †', '')
+            
+            # カードリストの可能性のある見出しをキーワードで探す
+            if any(keyword in header_text for keyword in ['収録カードリスト', 'パック']):
+                current_app.logger.info(f"カードリストの見出しを発見: '{header_text}'")
+                
+                # 付属パックの場合のカテゴリ名を決定
+                current_category = f"{main_category}_{header_text}" if 'パック' in header_text else main_category
+                
+                # 見出しの直後にある意味のある要素(ulまたはtable)を探す (間の空の要素はスキップ)
+                next_element = header.find_next_sibling()
+                while next_element and (next_element.name not in ['ul', 'table'] or not next_element.get_text(strip=True)):
+                    next_element = next_element.find_next_sibling()
+
+                # --- パターン1: リスト形式 ---
+                if next_element and next_element.name == 'ul':
+                    current_app.logger.info(f"  -> リスト(ul)形式と判断。カテゴリ: '{current_category}'")
+                    found_any_list = True
+                    list_items = next_element.find_all('li')
+                    for item in list_items:
+                        full_text = item.get_text(strip=True)
+                        match = re.match(r'([A-Z0-9\-]+)\s*《(.+?)》\s*(.*)', full_text)
+                        if match:
+                            card_id, name, raw_rare_text = match.groups()
+                            rarities = [r.strip() for r in raw_rare_text.split(',')] if raw_rare_text else ['Normal']
+                            for rare in rarities:
+                                final_card_list.append({'name': name.strip(), 'card_id': card_id.strip(), 'rare': rare if rare else 'Normal', 'stock': 0, 'category': current_category})
+                
+                # --- パターン2: テーブル形式 ---
+                elif next_element and next_element.name == 'table' and 'style_table' in next_element.get('class', []):
+                    current_app.logger.info(f"  -> テーブル(table)形式と判断。カテゴリ: '{current_category}'")
+                    found_any_list = True
+                    rows = next_element.find_all("tr")
+                    for row in rows[1:]: # ヘッダー行をスキップ
+                        cols = row.find_all(["td", "th"])
+                        if len(cols) >= 3:
+                            name = cols[0].get_text(strip=True)
+                            card_id = cols[1].get_text(strip=True)
+                            raw_rare_text = cols[2].get_text(strip=True)
+                            
+                            # レアリティから封入枚数（末尾の数字）を除去
+                            clean_rare_text = re.sub(r'\d+$', '', raw_rare_text).strip()
+                            
+                            if name and card_id:
+                                rarities = [r.strip() for r in clean_rare_text.split(',')] if clean_rare_text else ['Normal']
+                                for r in rarities:
+                                    final_card_list.append({'name': name, 'card_id': card_id, 'rare': r if r else 'Normal', 'stock': 0, 'category': current_category})
+        
+        if not found_any_list:
+            return None, "カードリストを含む可能性のあるセクションが見つかりませんでした。"
+        if not final_card_list:
+            return None, "カードリストの解析に失敗しました。ページの構造が未対応の可能性があります。"
+
+        current_app.logger.info(f"最終的に {len(final_card_list)} 件のカードデータを抽出しました。")
+        # 最初のカテゴリ名を代表として返す（表示用）
+        return main_category, final_card_list
+
+    except Exception as e:
+        error_type = type(e).__name__
+        current_app.logger.error(f"スクレイピング中に予期せぬエラー({error_type})が発生しました: {e}\n{traceback.format_exc()}")
+        if driver:
+            try:
+                driver.save_screenshot(debug_screenshot_path)
+                with open(debug_html_path, "w", encoding="utf-8") as f:
+                    f.write(driver.page_source)
+                current_app.logger.info(f"デバッグ用のスクリーンショットとHTMLを保存しました。")
+            except Exception as e_debug:
+                 current_app.logger.error(f"デバッグファイルの保存中にエラーが発生しました: {e_debug}")
+        return None, f"エラーが発生しました: {error_type}。({os.path.basename(debug_screenshot_path)} を確認してください)"
+    finally:
+        if driver:
+            driver.quit()
+            current_app.logger.info("Selenium WebDriverを終了しました。")
+
+
+@bp.route('/wiki_import', methods=['GET', 'POST'])
+@login_required
+def wiki_import():
+    if request.method == 'POST':
+        wiki_url = request.form.get('wiki_url', '').strip()
+        if not wiki_url:
+            flash('URLが入力されていません。', 'warning')
+            return redirect(url_for('admin.wiki_import'))
+        
+        current_app.logger.info(f"Wiki import started by user '{session.get('username', 'unknown')}' for URL: {wiki_url}")
+        
+        category, cards = scrape_wiki_page(wiki_url)
+        
+        if cards:
+            session['wiki_import_cards'] = cards
+            session['wiki_import_category'] = category 
+            flash(f'URLから {len(cards)} 件のカードが見つかりました。内容を確認してください。', 'success')
+            return redirect(url_for('admin.wiki_import_confirm'))
+        else:
+            flash(category, 'danger')
+            return redirect(url_for('admin.wiki_import'))
+
+    return render_template('admin/wiki_import.html')
+
+
+@bp.route('/wiki_import/confirm', methods=['GET', 'POST'])
+@login_required
+def wiki_import_confirm():
+    cards_to_import = session.get('wiki_import_cards')
+    display_category = session.get('wiki_import_category', 'インポート')
+
+    if not cards_to_import:
+        flash('登録対象のカード情報が見つかりません。もう一度URLからやり直してください。', 'warning')
+        return redirect(url_for('admin.wiki_import'))
+
+    if request.method == 'POST':
+        conn = None
+        added_count = 0
+        try:
+            conn = get_db_connection()
+            with conn.cursor() as cur:
+                for card in cards_to_import:
+                    name_normalized = normalize_for_search(card['name'])
+                    card_id_normalized = normalize_for_search(card['card_id'])
+
+                    try:
+                        cur.execute(
+                            """
+                            INSERT INTO items (name, card_id, rare, stock, category, name_normalized, card_id_normalized)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                            """,
+                            (card['name'], card['card_id'], card['rare'], card['stock'], card['category'], name_normalized, card_id_normalized)
+                        )
+                        added_count += 1
+                    except psycopg2.IntegrityError:
+                        conn.rollback() 
+                        current_app.logger.warning(f"Skipping duplicate card: {card['card_id']} ({card['rare']}) - {card['name']}")
+                        continue
+
+            conn.commit()
+            
+            session.pop('wiki_import_cards', None)
+            session.pop('wiki_import_category', None)
+            
+            flash(f'{added_count} 件のカードをデータベースに登録しました。', 'success')
+            current_app.logger.info(f"{added_count} cards from URL import have been added to DB.")
+            return redirect(url_for('main.index'))
+            
+        except (Exception, psycopg2.Error) as e:
+            if conn: conn.rollback()
+            current_app.logger.error(f"DB Error during wiki commit: {e}\n{traceback.format_exc()}")
+            flash(f"データベースへの登録中にエラーが発生しました: {e}", "danger")
+            return redirect(url_for('admin.wiki_import'))
+        finally:
+            if conn:
+                conn.close()
+
+    return render_template('admin/wiki_import_confirm.html', 
+                           cards=cards_to_import, 
+                           category=display_category)
+
+
+@bp.route('/wiki_import/cancel', methods=['POST'])
+@login_required
+def wiki_import_cancel():
+    session.pop('wiki_import_cards', None)
+    session.pop('wiki_import_category', None)
+    flash('インポート処理をキャンセルしました。', 'info')
+    return redirect(url_for('admin.wiki_import'))

@@ -37,15 +37,24 @@
                         <a class="nav-link dropdown-toggle {% if request.endpoint.startswith('admin.') %}active{% endif %}" href="#" id="adminMenuDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             管理メニュー
                         </a>
+{# app/templates/layout.html #}
+
+{# ...前略... #}
                         <ul class="dropdown-menu dropdown-menu-dark" aria-labelledby="adminMenuDropdown">
                             <li><a class="dropdown-item" href="{{ url_for('admin.admin_unify_rarities') }}">DBレアリティ統一</a></li>
                             <li><a class="dropdown-item" href="{{ url_for('admin.admin_import_csv') }}">CSVインポート</a></li>
                             <li><a class="dropdown-item" href="{{ url_for('admin.admin_batch_register') }}">一括カード登録</a></li>
                             <li><a class="dropdown-item" href="{{ url_for('admin.admin_check_categories') }}">カテゴリ不一致チェック</a></li>
                             <li><a class="dropdown-item {% if request.endpoint in ['admin.manage_products', 'admin.add_product', 'admin.edit_product'] %}active{% endif %}" href="{{ url_for('admin.manage_products') }}">製品マスタ管理</a></li>
+                            
+                            {# ===== ここから新規追加 ===== #}
+                            <li><a class="dropdown-item" href="{{ url_for('admin.wiki_import') }}">Wikiからインポート</a></li>
+                            {# ===== ここまで新規追加 ===== #}
+
                             <li><hr class="dropdown-divider"></li>
                             <li><a class="dropdown-item" href="{{ url_for('main.download_csv') }}">CSVバックアップ</a></li>
                         </ul>
+{# ...後略... #}
                     </li>
                     {% endif %}
                 </ul>
