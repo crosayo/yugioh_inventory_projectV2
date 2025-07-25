@@ -9,10 +9,11 @@ import csv
 import io
 import datetime
 
-from app.db import get_db_connection
-from app.auth import login_required
-from app.data_definitions import DEFINED_RARITIES
-from app.utils import normalize_for_search
+# dbモジュールを正しくインポート
+from . import db
+from .auth import login_required
+from .data_definitions import DEFINED_RARITIES
+from .utils import normalize_for_search
 
 bp = Blueprint('main', __name__)
 
@@ -20,7 +21,7 @@ def get_all_product_names():
     conn = None
     names = []
     try:
-        conn = get_db_connection()
+        conn = db.get_db_connection()
         cur = conn.cursor()
         cur.execute("SELECT name FROM products WHERE name IS NOT NULL AND name != '' ORDER BY name ASC")
         names = [row['name'] for row in cur.fetchall()]
@@ -37,7 +38,7 @@ def get_items_from_db(show_zero=True, keyword=None, search_field='all', sort_by=
     conn = None
     items_result = []
     try:
-        conn = get_db_connection()
+        conn = db.get_db_connection()
         cur = conn.cursor()
         
         query_base = """
@@ -108,7 +109,7 @@ def get_items_from_db(show_zero=True, keyword=None, search_field='all', sort_by=
     finally:
         if conn:
             if 'cur' in locals() and cur and not cur.closed:
-                 cur.close()
+                    cur.close()
             conn.close()
     return items_result
 
@@ -171,19 +172,18 @@ def add_item():
 
         if not name or not rare:
             flash('名前とレアリティは必須です。', 'danger')
-            return render_template('main/add_item.html', 
+            return render_template('main/add_item.html',
                                    prefill_name=name, prefill_card_id=card_id, prefill_category=category,
                                    prefill_stock=stock, rarities=DEFINED_RARITIES,
                                    selected_rarity=rare_select, custom_rarity_value=rare_custom,
                                    product_names=product_names)
 
-        # 正規化された値を作成
         name_normalized = normalize_for_search(name)
         card_id_normalized = normalize_for_search(card_id)
 
         conn = None
         try:
-            conn = get_db_connection()
+            conn = db.get_db_connection()
             cur = conn.cursor()
             cur.execute("""
                 INSERT INTO items (name, card_id, rare, stock, category, name_normalized, card_id_normalized)
@@ -192,7 +192,7 @@ def add_item():
             conn.commit()
             flash(f'商品「{name}」が追加されました。', 'success')
             return redirect(url_for('main.index'))
-        except psycopg2.IntegrityError as e:
+        except psycopg2.IntegrityError:
             conn.rollback()
             flash(f"データベース登録エラー: カードIDとレアリティの組み合わせが既に存在する可能性があります。", 'danger')
         except (Exception, psycopg2.Error) as e:
@@ -203,13 +203,13 @@ def add_item():
                 cur.close()
                 conn.close()
         
-        return render_template('main/add_item.html', 
+        return render_template('main/add_item.html',
                                prefill_name=name, prefill_card_id=card_id, prefill_category=category,
                                prefill_stock=stock, rarities=DEFINED_RARITIES,
                                selected_rarity=rare_select, custom_rarity_value=rare_custom,
                                product_names=product_names)
 
-    return render_template('main/add_item.html', 
+    return render_template('main/add_item.html',
                            rarities=DEFINED_RARITIES,
                            product_names=product_names)
 
@@ -219,7 +219,7 @@ def edit_item(item_id):
     product_names = get_all_product_names()
     
     def get_item(id):
-        conn = get_db_connection()
+        conn = db.get_db_connection()
         cur = conn.cursor()
         cur.execute("SELECT * FROM items WHERE id = %s", (id,))
         item = cur.fetchone()
@@ -243,7 +243,7 @@ def edit_item(item_id):
 
         conn = None
         try:
-            conn = get_db_connection()
+            conn = db.get_db_connection()
             cur = conn.cursor()
             cur.execute("""
                 UPDATE items
@@ -267,8 +267,8 @@ def edit_item(item_id):
     if not item:
         abort(404)
         
-    return render_template('main/edit_item.html', 
-                           item=item, 
+    return render_template('main/edit_item.html',
+                           item=item,
                            rarities=DEFINED_RARITIES,
                            product_names=product_names)
 
@@ -278,7 +278,7 @@ def confirm_delete_item(item_id):
     conn = None
     item = None
     try:
-        conn = get_db_connection()
+        conn = db.get_db_connection()
         cur = conn.cursor()
         cur.execute("SELECT * FROM items WHERE id = %s", (item_id,))
         item = cur.fetchone()
@@ -302,7 +302,7 @@ def confirm_delete_item(item_id):
 def delete_item(item_id):
     conn = None
     try:
-        conn = get_db_connection()
+        conn = db.get_db_connection()
         cur = conn.cursor()
         cur.execute("SELECT name FROM items WHERE id = %s", (item_id,))
         item_name_tuple = cur.fetchone()
@@ -347,7 +347,7 @@ def download_csv():
     conn = None
     items = []
     try:
-        conn = get_db_connection()
+        conn = db.get_db_connection()
         cur = conn.cursor()
         cur.execute("""
             SELECT 
@@ -399,7 +399,7 @@ def api_update_stock(item_id):
 
     conn = None
     try:
-        conn = get_db_connection()
+        conn = db.get_db_connection()
         with conn: 
             with conn.cursor() as cur:
                 cur.execute("SELECT stock FROM items WHERE id = %s FOR UPDATE", (item_id,))
@@ -428,3 +428,32 @@ def api_update_stock(item_id):
     finally:
         if conn:
             conn.close()
+
+@bp.route('/delete_multiple_items', methods=['POST'])
+@login_required
+def delete_multiple_items():
+    """ 複数のアイテムを一度に削除する """
+    data = request.get_json()
+    item_ids = data.get('item_ids')
+
+    if not item_ids:
+        return jsonify({'success': False, 'message': '削除するアイテムが選択されていません。'})
+
+    try:
+        # 文字列のIDを整数のリストに変換
+        item_ids_int = [int(i) for i in item_ids]
+        
+        # データベースから削除
+        deleted_count = db.delete_items_by_ids(item_ids_int)
+        
+        if deleted_count > 0:
+            flash(f'{deleted_count}件のアイテムを削除しました。', 'success')
+            return jsonify({'success': True})
+        else:
+            flash('削除対象のアイテムが見つかりませんでした。', 'warning')
+            return jsonify({'success': False, 'message': '削除対象が見つかりません。'})
+
+    except Exception as e:
+        current_app.logger.error(f"一括削除処理でエラーが発生: {e}")
+        flash('削除処理中にエラーが発生しました。', 'danger')
+        return jsonify({'success': False, 'message': 'サーバーエラーが発生しました。'}), 500
