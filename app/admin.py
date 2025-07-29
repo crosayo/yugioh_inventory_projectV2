@@ -13,7 +13,11 @@ from werkzeug.utils import secure_filename
 import datetime
 from app.db import get_db_connection
 from app.auth import login_required
-from app.data_definitions import DEFINED_RARITIES, RARITY_CONVERSION_MAP, calculate_era
+# --- ここから修正 ---
+# data_definitionsからはcalculate_eraのみを、configから設定を読み込むように変更
+from app.data_definitions import calculate_era
+from app import config
+# --- ここまで修正 ---
 from app.utils import normalize_for_search
 from urllib.parse import unquote, quote
 
@@ -52,7 +56,10 @@ def admin_unify_rarities():
         try:
             conn = get_db_connection()
             cur = conn.cursor()
-            for old_rare, new_rare in RARITY_CONVERSION_MAP.items():
+            # --- ここから修正 ---
+            # RARITY_CONVERSION_MAPをconfigから読み込む
+            for old_rare, new_rare in config.RARITY_CONVERSION_MAP.items():
+            # --- ここまで修正 ---
                 cur.execute("""
                     UPDATE items SET rare = %s
                     WHERE LOWER(rare) = LOWER(%s) AND rare != %s
@@ -93,9 +100,12 @@ def admin_unify_rarities():
         if conn_get:
             if 'cur_get' in locals() and cur_get and not cur_get.closed: cur_get.close()
             conn_get.close()
+    
+    # --- ここから修正 ---
+    # rarity_mapとdefined_raritiesをconfigから読み込む
     return render_template('admin/admin_unify_rarities.html',
-                           rarity_map=RARITY_CONVERSION_MAP,
-                           defined_rarities=DEFINED_RARITIES,
+                           rarity_map=config.RARITY_CONVERSION_MAP,
+                           defined_rarities=config.DEFINED_RARITIES,
                            current_db_rarities=current_db_rarities)
 
 def get_items_by_category_for_batch(category_keyword=None, page=1, per_page=20, sort_by="name", sort_order="asc"):
@@ -352,7 +362,7 @@ def admin_import_csv():
                                         file_processing_summary['skipped_error_row'] +=1
                                         continue
 
-                                    converted_rarity = RARITY_CONVERSION_MAP.get(raw_rarity.lower(), raw_rarity)
+                                    converted_rarity = config.RARITY_CONVERSION_MAP.get(raw_rarity.lower(), raw_rarity)
                                     final_card_id_for_db = card_id_csv if card_id_csv else None
                                     
                                     final_category = category_from_csv_row if category_from_csv_row else category_name_from_filename
@@ -1235,3 +1245,22 @@ def wiki_import_cancel():
     session.pop('wiki_import_category', None)
     flash('インポート処理をキャンセルしました。', 'info')
     return redirect(url_for('admin.wiki_import'))
+
+@bp.route('/config')
+@login_required
+def manage_config():
+    """
+    アプリケーションの設定(config.py)を閲覧するページ。
+    """
+    # configモジュールの内容を読み込む
+    # アンダースコアで始まらない変数のみを取得
+    config_items = {
+        key: getattr(config, key)
+        for key in dir(config)
+        if not key.startswith('__')
+    }
+    
+    # テンプレートに設定値を渡して表示
+    return render_template('admin/manage_config.html',
+                           config_items=config_items,
+                           page_title='アプリケーション設定管理')

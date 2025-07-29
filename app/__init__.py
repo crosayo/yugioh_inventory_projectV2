@@ -6,9 +6,11 @@ import datetime
 import psycopg2
 from collections import defaultdict
 
-# データベース接続関数とデータ定義をインポート
+# --- ここから修正 ---
+# データベース接続関数と、新しいconfigモジュールをインポート
 from .db import get_db_connection
-from .data_definitions import ERA_DISPLAY_ORDER, ERA_DISPLAY_NAMES
+from . import config # data_definitions の代わりに config をインポート
+# --- ここまで修正 ---
 
 _kks_hira_converter = kakasi()
 _kks_hira_converter.setMode("J", "H")
@@ -93,14 +95,17 @@ def create_app(test_config=None):
                     cur.close()
                 conn.close()
 
+        # --- ここから修正 ---
+        # sidebar_era_order と sidebar_era_names の参照元を config に変更
         return {
             'logged_in': session.get('logged_in'),
             'username': session.get('username'),
             'now': datetime.datetime.now(datetime.timezone.utc),
             'sidebar_data': grouped_by_era,
-            'sidebar_era_order': ERA_DISPLAY_ORDER,
-            'sidebar_era_names': ERA_DISPLAY_NAMES
+            'sidebar_era_order': config.ERA_DISPLAY_ORDER,
+            'sidebar_era_names': config.ERA_DISPLAY_NAMES
         }
+        # --- ここまで修正 ---
 
     app.logger.info("Flask app created successfully.")
     return app

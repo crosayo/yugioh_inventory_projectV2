@@ -9,11 +9,14 @@ import csv
 import io
 import datetime
 
-# dbモジュールを正しくインポート
-from . import db
+# --- ここから修正 ---
+# db, auth, utilsモジュールと、新しくconfigモジュールをインポート
+from . import db, config
 from .auth import login_required
-from .data_definitions import DEFINED_RARITIES
 from .utils import normalize_for_search
+# data_definitionsは不要になったので削除
+# --- ここまで修正 ---
+
 
 bp = Blueprint('main', __name__)
 
@@ -115,14 +118,17 @@ def get_items_from_db(show_zero=True, keyword=None, search_field='all', sort_by=
 
 @bp.route('/')
 def index():
-    per_page = int(request.args.get('per_page', 20))
+    # --- ここから修正 ---
+    # デフォルト値をconfigから読み込むように変更
+    per_page = int(request.args.get('per_page', config.DEFAULT_PER_PAGE))
     page = int(request.args.get('page', 1))
     show_zero = request.args.get('show_zero') == 'on'
     keyword = request.args.get('keyword', '').strip()
     search_field = request.args.get('search_field', 'all')
-    sort_by = request.args.get('sort_key', 'release_date')
-    sort_order = request.args.get('sort_order', 'desc')
+    sort_by = request.args.get('sort_key', config.DEFAULT_SORT_KEY)
+    sort_order = request.args.get('sort_order', config.DEFAULT_SORT_ORDER)
     category_filter = request.args.get('category', None)
+    # --- ここまで修正 ---
 
     all_items = get_items_from_db(show_zero, keyword, search_field, sort_by, sort_order, category_filter)
     total_items_count = len(all_items)
@@ -156,6 +162,54 @@ def index():
                            sort_order=sort_order,
                            category_filter=category_filter)
 
+@bp.route('/add_variant/<int:id>')
+@login_required
+def add_item_variant(id):
+    """ 既存のアイテムに基づいて新しいアイテムを追加する（別レアリティ追加用） """
+    conn = None
+    item_data = {}
+
+    try:
+        conn = db.get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT name, card_id, category FROM items WHERE id = %s', (id,))
+        item = cursor.fetchone()
+        
+        if item is None:
+            flash('元のアイテムが見つかりませんでした。', 'error')
+            return redirect(url_for('main.index'))
+
+        item_data = {
+            'name': item['name'],
+            'card_id': item['card_id'],
+            'category': item['category'],
+            'rare': '',
+            'stock': 1
+        }
+
+    except (Exception, psycopg2.Error) as error:
+        current_app.logger.error(f"Error in add_item_variant: {error}")
+        flash('アイテムの読み込み中にエラーが発生しました。', 'danger')
+        return redirect(url_for('main.index'))
+    finally:
+        if conn:
+            if 'cursor' in locals() and not cursor.closed:
+                cursor.close()
+            conn.close()
+
+    # --- ここから修正 ---
+    # raritiesをconfigから読み込むように変更
+    return render_template('main/add_item.html',
+                           prefill_name=item_data.get('name'),
+                           prefill_card_id=item_data.get('card_id'),
+                           prefill_category=item_data.get('category'),
+                           prefill_stock=item_data.get('stock', 1),
+                           rarities=config.DEFINED_RARITIES,
+                           product_names=get_all_product_names()
+                           )
+    # --- ここまで修正 ---
+    
 @bp.route('/add', methods=('GET', 'POST'))
 @login_required
 def add_item():
@@ -172,11 +226,14 @@ def add_item():
 
         if not name or not rare:
             flash('名前とレアリティは必須です。', 'danger')
+            # --- ここから修正 ---
+            # raritiesをconfigから読み込むように変更
             return render_template('main/add_item.html',
                                    prefill_name=name, prefill_card_id=card_id, prefill_category=category,
-                                   prefill_stock=stock, rarities=DEFINED_RARITIES,
+                                   prefill_stock=stock, rarities=config.DEFINED_RARITIES,
                                    selected_rarity=rare_select, custom_rarity_value=rare_custom,
                                    product_names=product_names)
+            # --- ここまで修正 ---
 
         name_normalized = normalize_for_search(name)
         card_id_normalized = normalize_for_search(card_id)
@@ -203,15 +260,21 @@ def add_item():
                 cur.close()
                 conn.close()
         
+        # --- ここから修正 ---
+        # raritiesをconfigから読み込むように変更
         return render_template('main/add_item.html',
                                prefill_name=name, prefill_card_id=card_id, prefill_category=category,
-                               prefill_stock=stock, rarities=DEFINED_RARITIES,
+                               prefill_stock=stock, rarities=config.DEFINED_RARITIES,
                                selected_rarity=rare_select, custom_rarity_value=rare_custom,
                                product_names=product_names)
+        # --- ここまで修正 ---
 
+    # --- ここから修正 ---
+    # raritiesをconfigから読み込むように変更
     return render_template('main/add_item.html',
-                           rarities=DEFINED_RARITIES,
+                           rarities=config.DEFINED_RARITIES,
                            product_names=product_names)
+    # --- ここまで修正 ---
 
 @bp.route('/edit/<int:item_id>', methods=('GET', 'POST'))
 @login_required
@@ -267,10 +330,16 @@ def edit_item(item_id):
     if not item:
         abort(404)
         
+    # --- ここから修正 ---
+    # raritiesをconfigから読み込むように変更
     return render_template('main/edit_item.html',
                            item=item,
-                           rarities=DEFINED_RARITIES,
+                           rarities=config.DEFINED_RARITIES,
                            product_names=product_names)
+    # --- ここまで修正 ---
+
+# (以降の delete_item や API などの関数は変更なし)
+# ... (省略) ...
 
 @bp.route('/delete/<int:item_id>/confirm', methods=('GET',))
 @login_required
