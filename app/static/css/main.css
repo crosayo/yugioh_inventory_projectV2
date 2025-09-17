@@ -174,4 +174,13 @@ body {
     body {
         padding-top: 56px; /* Ensure navbar doesn't overlap */
     }
+
+    /* Responsive improvements for table on small screens */
+    .table-responsive .table {
+        font-size: 0.8rem; /* Reduce font size */
+    }
+    .table-responsive .table th,
+    .table-responsive .table td {
+        padding: 0.4rem 0.2rem; /* Reduce padding */
+    }
 }
