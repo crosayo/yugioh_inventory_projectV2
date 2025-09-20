@@ -1,0 +1,36 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-4">{{ page_title }}</h1>
+    <p class="lead">
+        このページでは、アプリケーションの動作を制御する設定ファイル (<code>config.py</code>) の内容を閲覧できます。<br>
+        <span class="text-muted">（現在は閲覧のみです。将来のアップデートで、ここから直接編集できるようになります。）</span>
+    </p>
+    
+    <hr class="my-4">
+
+    {% for key, value in config_items.items() %}
+    <div class="card mb-3">
+        <div class="card-header">
+            <h5 class="mb-0"><code>{{ key }}</code></h5>
+        </div>
+        <div class="card-body">
+            {# ▼▼▼ ここの行を修正しました ▼▼▼ #}
+            {% if value is iterable and not value is string %}
+                <pre class="bg-light p-3 rounded"><code>{{ value | tojson(indent=4) }}</code></pre>
+            {# ▲▲▲ ここまで修正 ▲▲▲ #}
+            {# それ以外（文字列や数値）の場合はそのまま表示 #}
+            {% else %}
+                <p class="card-text"><code>{{ value }}</code></p>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+
+    <div class="text-center mt-4">
+        <a href="{{ url_for('admin.manage_products') }}" class="btn btn-secondary">製品マスタ管理に戻る</a>
+    </div>
+
+</div>
+{% endblock %}
