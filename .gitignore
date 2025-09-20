@@ -1,4 +1,4 @@
-        # Python
+# Python
         *.py[cod]
         __pycache__/
         venv/
@@ -28,4 +28,4 @@
 
         # Uploads folder (もしリポジトリに含めたくない場合)
         # app/uploads/
-        
+chromedriver.exe

@@ -18,11 +18,14 @@ from app.utils import normalize_for_search
 from urllib.parse import unquote, quote
 
 # SeleniumとBeautifulSoupのインポート
+# SeleniumとBeautifulSoupのインポート
 from selenium import webdriver
+from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
+from webdriver_manager.chrome import ChromeDriverManager
 from bs4 import BeautifulSoup
 import time
 
@@ -1049,7 +1052,7 @@ def scrape_wiki_page(url):
 
     try:
         current_app.logger.info("Selenium WebDriverを初期化しています...")
-        driver = webdriver.Chrome(options=options)
+        driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=options)
         driver.set_page_load_timeout(90)
         
         current_app.logger.info(f"指定されたURLにアクセスします: {url}")
